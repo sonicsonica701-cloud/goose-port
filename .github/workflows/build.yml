@@ -31,20 +31,15 @@ jobs:
                -H "Accept: application/octet-stream" \
                "https://api.github.com/repos/sonicsonica701-cloud/goose-port/releases/assets/$ASSET_ID" \
                -o project.tar.zst
+          ls -lh project.tar.zst
           echo "Downloaded tarball"
 
       - name: Extract project
         run: |
-          pip install zstandard
-          python3 -c "
-          import zstandard, tarfile, io
-          dctx = zstandard.ZstdDecompressor()
-          with open('project.tar.zst', 'rb') as ifh:
-              with dctx.stream_reader(ifh) as reader:
-                  with tarfile.open(fileobj=reader, mode='r|') as tar:
-                      tar.extractall('.')
-          "
-          rm project.tar.zst
+          sudo apt-get install -y zstd
+          zstd -d project.tar.zst -o project.tar
+          tar -xf project.tar
+          rm project.tar project.tar.zst
           ls -la ExportedProject/
           echo "Project extracted"
 
@@ -57,20 +52,17 @@ jobs:
 
       - name: Set Android build settings
         run: |
-          # Patch ProjectSettings for ARMv7 32-bit Android
           SETTINGS="ExportedProject/ProjectSettings/ProjectSettings.asset"
           if [ -f "$SETTINGS" ]; then
-            # Force ARMv7 only (no ARM64)
+            # Force ARMv7 only (AndroidTargetArchitectures: 1 = ARMv7)
             sed -i 's/AndroidTargetArchitectures:.*/AndroidTargetArchitectures: 1/' "$SETTINGS"
-            # Set minimum API level to 22 (Android 5.1)
+            # Set minimum API level
             sed -i 's/AndroidMinSdkVersion:.*/AndroidMinSdkVersion: 22/' "$SETTINGS"
-            # Set target API to 28 (matches test device)
+            # Set target API
             sed -i 's/AndroidTargetSdkVersion:.*/AndroidTargetSdkVersion: 28/' "$SETTINGS"
-            # Force Mono scripting backend (not IL2CPP)
+            # Force Mono scripting backend (0 = Mono, 1 = IL2CPP)
             sed -i 's/scriptingBackend:.*/scriptingBackend: {Android: 0}/' "$SETTINGS"
-            # Set bundle identifier
-            sed -i 's/applicationIdentifier:.*//' "$SETTINGS"
-            echo "Build settings patched for ARMv7"
+            echo "Build settings patched for ARMv7 32-bit"
           fi
 
       - name: Build APK
