@@ -52,7 +52,7 @@ jobs:
       - name: Pull Unity Android editor image
         run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
 
-      - name: Activate Unity Personal (online) + Build APK
+      - name: Activate Unity + Build APK
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
@@ -66,43 +66,46 @@ jobs:
             unityci/editor:ubuntu-2020.3.48f1-android-3 \
             bash -c '
               set +e
-              echo "=== Releasing any existing seat ==="
               LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
               echo "licensing client: $LIC_CLIENT"
-              if [ -z "$LIC_CLIENT" ] || [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
-                echo "FATAL: missing license client or credentials"; exit 1
-              fi
 
-              # Release any existing seat first so this new machine can take it
-              "$LIC_CLIENT" --release --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" || true
-              sleep 2
+              # Step 1: Return/release any seats held elsewhere
+              echo "=== Returning all licenses ==="
+              "$LIC_CLIENT" --return-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" 2>&1 || true
+              sleep 3
 
-              echo "=== Activating Unity (online personal) ==="
+              # Step 2: Activate on this machine
+              echo "=== Activating Unity ==="
               "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
-              ACTIVATE_EXIT=$?
-              echo "activate-all exit: $ACTIVATE_EXIT"
+              echo "activate-all exit: $?"
 
-              if [ $ACTIVATE_EXIT -ne 0 ]; then
-                echo "First activate failed, retrying after 5s..."
-                sleep 5
-                "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
-                ACTIVATE_EXIT=$?
-                echo "retry activate-all exit: $ACTIVATE_EXIT"
+              # Step 3: Show what we got
+              "$LIC_CLIENT" --showEntitlements
+              echo "=== License files ==="
+              ls -la /root/.config/unity3d/Unity/licenses/ 2>/dev/null || echo "no license dir"
+              
+              # If no license file, try passing creds directly to editor
+              if [ ! -f /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml ]; then
+                echo "=== No license file, passing creds to editor directly ==="
+                set -e
+                /opt/unity/Editor/Unity \
+                  -batchmode -nographics -quit \
+                  -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
+                  -projectPath /project \
+                  -executeMethod AndroidBuilder.BuildAndroid \
+                  -logFile /dev/stdout \
+                  -buildTarget Android
+              else
+                echo "=== License file exists, building ==="
+                set -e
+                /opt/unity/Editor/Unity \
+                  -batchmode -nographics -quit \
+                  -projectPath /project \
+                  -executeMethod AndroidBuilder.BuildAndroid \
+                  -logFile /dev/stdout \
+                  -buildTarget Android
               fi
 
-              "$LIC_CLIENT" --showEntitlements
-              echo "=== License file in container ==="
-              ls -la /root/.config/unity3d/Unity/licenses/ || true
-              cat /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml 2>/dev/null | head -5 || true
-
-              echo "=== Running Unity build ==="
-              set -e
-              /opt/unity/Editor/Unity \
-                -batchmode -nographics -quit \
-                -projectPath /project \
-                -executeMethod AndroidBuilder.BuildAndroid \
-                -logFile /dev/stdout \
-                -buildTarget Android
               echo "=== Build artifacts ==="
               ls -la /project/Build/ || true
               chown -R $(stat -c "%u:%g" /project) /project/Build || true
