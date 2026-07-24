@@ -1,0 +1,96 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<root xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <License Id="Terms" IssueDate="2026-07-24T22:23:40.231Z" Version="1.0">
+    <EntitlementGroups>
+      <EntitlementGroup Id="20067104844399-UnityPersonal" Namespace="unity_editor" Product="Unity Personal" SubsGroup="Unity Editor" Tag="UnityPersonal" Type="EDITOR">
+        <Context>
+          <User Id="20067104844399" />
+          <StartDate>2024-01-03T21:33:12Z</StartDate>
+          <UpdateDate>2026-08-23T22:23:40.231Z</UpdateDate>
+          <Identifiers>
+            <Identifier Id="576562626572264761624c65526f7578" Type="Legacy.MachineBinding1" />
+            <Identifier Id="576562626572264761624c65526f7578" Type="Legacy.MachineBinding2" />
+          </Identifiers>
+        </Context>
+        <Entitlements>
+          <Entitlement Id="com.unity.editor" />
+          <Entitlement Id="com.unity.editor.ui" />
+          <Entitlement Id="com.unity.editor.headless" />
+          <Entitlement Id="com.unity.editor.dark-skin" />
+          <Entitlement Id="com.unity.editor.legacy.team-license" />
+          <Entitlement Id="com.unity.editor.platforms.android" />
+          <Entitlement Id="com.unity.editor.platforms.ios" />
+          <Entitlement Id="com.unity.editor.platforms.uwp" />
+        </Entitlements>
+      </EntitlementGroup>
+      <EntitlementGroup Id="organization-all-asset-store-upm-packages" Namespace="asset_store" Product="Asset Store" Type="upm-package">
+        <Context>
+          <User Id="20067104844399" />
+          <UpdateDate>2026-08-23T22:23:40.231Z</UpdateDate>
+          <Identifiers>
+            <Identifier Id="576562626572264761624c65526f7578" Type="Legacy.MachineBinding1" />
+            <Identifier Id="576562626572264761624c65526f7578" Type="Legacy.MachineBinding2" />
+          </Identifiers>
+        </Context>
+        <Entitlements>
+          <Entitlement Id="com.meta.xr.mrutilitykit" />
+          <Entitlement Id="com.meta.xr.runtimeoptimizer" />
+          <Entitlement Id="com.meta.xr.sdk.all" />
+          <Entitlement Id="com.meta.xr.sdk.audio" />
+          <Entitlement Id="com.meta.xr.sdk.avatars" />
+          <Entitlement Id="com.meta.xr.sdk.avatars.sample.assets" />
+          <Entitlement Id="com.meta.xr.sdk.core" />
+          <Entitlement Id="com.meta.xr.sdk.haptics" />
+          <Entitlement Id="com.meta.xr.sdk.interaction" />
+          <Entitlement Id="com.meta.xr.sdk.interaction.ovr" />
+          <Entitlement Id="com.meta.xr.sdk.interaction.ovr.samples" />
+          <Entitlement Id="com.meta.xr.sdk.platform" />
+          <Entitlement Id="com.meta.xr.sdk.sharedassets" />
+          <Entitlement Id="com.meta.xr.sdk.utilities" />
+          <Entitlement Id="com.meta.xr.sdk.voice" />
+          <Entitlement Id="com.meta.xr.sdk.voice.composer" />
+          <Entitlement Id="com.meta.xr.sdk.voice.dictation" />
+          <Entitlement Id="com.meta.xr.sdk.voice.telemetry" />
+          <Entitlement Id="com.meta.xr.simulator" />
+          <Entitlement Id="com.meta.xr.simulator.samples" />
+          <Entitlement Id="com.meta.xr.simulator.synthenvbuilder" />
+          <Entitlement Id="com.microsoft.mixedreality.openxr" />
+          <Entitlement Id="com.microsoft.mixedreality.webview.unity" />
+          <Entitlement Id="com.microsoft.mrtk.graphicstools.unity" />
+          <Entitlement Id="com.microsoft.mrtk.tts.windows" />
+          <Entitlement Id="com.microsoft.spatialaudio.spatializer.unity" />
+          <Entitlement Id="org.mixedrealitytoolkit.audio" />
+          <Entitlement Id="org.mixedrealitytoolkit.core" />
+          <Entitlement Id="org.mixedrealitytoolkit.diagnostics" />
+          <Entitlement Id="org.mixedrealitytoolkit.extendedassets" />
+          <Entitlement Id="org.mixedrealitytoolkit.input" />
+          <Entitlement Id="org.mixedrealitytoolkit.spatialmanipulation" />
+          <Entitlement Id="org.mixedrealitytoolkit.standardassets" />
+          <Entitlement Id="org.mixedrealitytoolkit.tools" />
+          <Entitlement Id="org.mixedrealitytoolkit.uxcomponents" />
+          <Entitlement Id="org.mixedrealitytoolkit.uxcomponents.noncanvas" />
+          <Entitlement Id="org.mixedrealitytoolkit.uxcore" />
+          <Entitlement Id="org.mixedrealitytoolkit.windowsspeech" />
+        </Entitlements>
+      </EntitlementGroup>
+    </EntitlementGroups>
+  </License>
+  <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+    <SignedInfo>
+      <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments" />
+      <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" />
+      <Reference URI="#Terms">
+        <Transforms>
+          <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" />
+        </Transforms>
+        <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" />
+        <DigestValue>ddgRGm9JutfLxEyvPZuAHPrQcxQSBJ/hkIDNmirx+Ng=</DigestValue>
+      </Reference>
+    </SignedInfo>
+    <SignatureValue>ip0+m0w5ATdW76upubxGrY+3v+5JOf+X9US8yBZLJYutFbhArSjplrT5jD4NFEkB37wnqgDnFgn4
+EXNEWfYZ0++FItMGWE5OjyasPzbzsYh2X3AwTEZaLet2GNrcVolCooUVCH8kFdmGOIM5xO7e3nU1
+Zihp0tz+ltmLgkIjSoIUL2hlaQ+Za4onxLzkt/dDwuhsqaRqVizhR+mJXZUywdCmVzkuyO7kTgZx
+3jHRdRnIMnVahkG4Z4u8OkWh+KEWFJ6MV83M5ZJBdcVK5TiBZd7RtQz/pYdSY2ac5mIUeDLYAL9K
+SZBLrrwW74wHgrwsE2hZkSeTVQvI1SMGCMfpqw==</SignatureValue>
+  </Signature>
+</root>
