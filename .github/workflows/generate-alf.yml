@@ -8,6 +8,11 @@ jobs:
     name: Generate ALF
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android
+          df -h
+
       - name: Pull Unity editor image
         run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
 
