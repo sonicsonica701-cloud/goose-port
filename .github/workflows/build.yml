@@ -48,100 +48,59 @@ jobs:
             cp -rv overrides/* ExportedProject/ | tail -20
           fi
 
-      - name: Pull Unity Android editor image
-        run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
-
-      - name: Activate Unity + Build APK
-        env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      - name: Install Unity Hub
         run: |
-          set -e
-          echo "UNITY_EMAIL=$UNITY_EMAIL" > /tmp/u.env
-          echo "UNITY_PASSWORD=$UNITY_PASSWORD" >> /tmp/u.env
-          
-          # If we have a UNITY_LICENSE (ULF content), write it directly
-          if [ -n "$UNITY_LICENSE" ]; then
-            echo "Using provided UNITY_LICENSE (ULF)..."
-            mkdir -p license_dir
-            echo "$UNITY_LICENSE" > license_dir/Unity_lic.ulf
-            echo "UNITY_LICENSE_FILE=/license/Unity_lic.ulf" >> /tmp/u.env
+          wget -qO - https://hub.unity3d.com/linux/keys/public | sudo gpg --dearmor -o /etc/apt/keyrings/unity-hub.gpg
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/unity-hub.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list
+          sudo apt-get update -qq
+          sudo apt-get install -y unityhub
+          # Make xvfb available for headless Unity Hub
+          sudo apt-get install -y xvfb
+
+      - name: Install Unity 2020.3.48f1 with Android support
+        run: |
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1024x768x24 &
+          sleep 2
+          # Login to Unity Hub
+          xvfb-run unityhub --headless login --username "${{ secrets.UNITY_EMAIL }}" --password "${{ secrets.UNITY_PASSWORD }}"
+          # Install Unity with Android build support
+          xvfb-run unityhub --headless install --version 2020.3.48f1 --module android --childModules
+          # List installs to verify
+          xvfb-run unityhub --headless editors --installed
+          echo "Unity installed!"
+
+      - name: Activate Unity License
+        run: |
+          export DISPLAY=:99
+          xvfb-run unityhub --headless license activate --username "${{ secrets.UNITY_EMAIL }}" --password "${{ secrets.UNITY_PASSWORD }}" --type personal
+          echo "License activated!"
+
+      - name: Find Unity Editor path
+        id: unity-path
+        run: |
+          UNITY_PATH=$(find /opt/unityhub -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null || find ~/Unity -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null || find /home -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null)
+          echo "UNITY_EDITOR=$UNITY_PATH" >> $GITHUB_OUTPUT
+          echo "Found Unity at: $UNITY_PATH"
+
+      - name: Build APK
+        run: |
+          export DISPLAY=:99
+          UNITY="${{ steps.unity-path.outputs.UNITY_EDITOR }}"
+          if [ -z "$UNITY" ]; then
+            echo "Searching for Unity editor..."
+            UNITY=$(find / -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null | head -1)
           fi
+          echo "Using Unity at: $UNITY"
           
-          docker run --rm \
-            --env-file /tmp/u.env \
-            -v "$PWD/ExportedProject":/project \
-            -v "$PWD/license_dir":/license 2>/dev/null || true \
-            -w /project \
-            unityci/editor:ubuntu-2020.3.48f1-android-3 \
-            bash -c '
-              set +e
-              echo "=== Attempting license activation ==="
-              
-              # If ULF file exists, install it directly
-              if [ -f "/license/Unity_lic.ulf" ]; then
-                echo "Installing ULF license file..."
-                mkdir -p /root/.local/share/unity3d/Unity
-                cp /license/Unity_lic.ulf /root/.local/share/unity3d/Unity/Unity_lic.ulf
-                mkdir -p /root/.config/unity3d/Unity/licenses
-                cp /license/Unity_lic.ulf /root/.config/unity3d/Unity/licenses/Unity_lic.ulf
-              fi
-              
-              # Try licensing client activation
-              LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
-              if [ -n "$LIC_CLIENT" ] && [ -n "$UNITY_EMAIL" ]; then
-                echo "Trying licensing client..."
-                "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" || true
-              fi
-              
-              # Check what we got
-              echo "=== License state ==="
-              ls -la /root/.config/unity3d/Unity/licenses/ 2>/dev/null || true
-              ls -la /root/.local/share/unity3d/Unity/ 2>/dev/null || true
-              
-              echo "=== Building APK ==="
-              set -e
-              /opt/unity/Editor/Unity \
-                -batchmode -nographics -quit \
-                -username "$UNITY_EMAIL" \
-                -password "$UNITY_PASSWORD" \
-                -projectPath /project \
-                -executeMethod AndroidBuilder.BuildAndroid \
-                -logFile /dev/stdout \
-                -buildTarget Android
-              
-              echo "=== Build complete ==="
-              ls -la /project/Build/ || true
-              chown -R $(stat -c "%u:%g" /project) /project/Build || true
-            '
-
-      - name: Generate ALF (if build failed due to licensing)
-        if: failure()
-        run: |
-          echo "Build may have failed due to licensing. Generating ALF for manual activation..."
-          docker run --rm \
-            -v "$PWD/ExportedProject":/project \
-            -w /project \
-            unityci/editor:ubuntu-2020.3.48f1-android-3 \
-            bash -c '
-              /opt/unity/Editor/Unity -batchmode -nographics -quit -createManualActivationFile -logFile /dev/stdout || true
-            '
-          find ExportedProject -name "*.alf" -exec cp {} ./Unity_v2020.3.48f1.alf \; 2>/dev/null || true
-          ls -la *.alf 2>/dev/null || echo "No ALF generated"
-
-      - name: Upload ALF (for manual activation)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unity-activation-file
-          path: "*.alf"
-          if-no-files-found: ignore
-
-      - name: List build output
-        if: always()
-        run: |
-          sudo chown -R $USER:$USER ExportedProject/Build 2>/dev/null || true
+          "$UNITY" \
+            -batchmode -nographics -quit \
+            -projectPath "$PWD/ExportedProject" \
+            -executeMethod AndroidBuilder.BuildAndroid \
+            -logFile - \
+            -buildTarget Android
+          
+          echo "=== Build output ==="
           ls -la ExportedProject/Build/ || true
           find ExportedProject/Build -name "*.apk" -ls || true
 
@@ -150,5 +109,5 @@ jobs:
         with:
           name: goose-apk
           path: ExportedProject/Build/*.apk
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 14
