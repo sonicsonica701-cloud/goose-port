@@ -45,15 +45,15 @@ jobs:
             cp -rv overrides/* ExportedProject/ | tail -20
           fi
 
-      - name: Install Unity Hub + Unity 2020.3.48f1
+      - name: Install Unity Hub and Unity Editor
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -e
-          # Install deps
+          # Dependencies
           sudo apt-get update -qq
-          sudo apt-get install -y xvfb libgbm1 libasound2
+          sudo apt-get install -y xvfb libgbm1 libasound2 libgtk-3-0 libnss3 libxss1
           
           # Install Unity Hub
           wget -qO - https://hub.unity3d.com/linux/keys/public | sudo gpg --dearmor -o /etc/apt/keyrings/unity-hub.gpg
@@ -61,44 +61,75 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y unityhub
           
-          # Start virtual display
-          Xvfb :99 -screen 0 1024x768x24 &
-          export DISPLAY=:99
-          sleep 2
+          # Start Xvfb on display :1 (not :99 which may conflict)
+          sudo Xvfb :1 -screen 0 1024x768x24 -ac &
+          export DISPLAY=:1
+          sleep 3
           
-          # Login
-          echo "Logging in..."
-          unityhub --no-sandbox --headless login --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+          # Check what commands are available
+          echo "=== Unity Hub help ==="
+          unityhub --no-sandbox -- --headless help 2>&1 || true
           
-          # Install Unity with Android module
-          echo "Installing Unity 2020.3.48f1 + Android..."
-          unityhub --no-sandbox --headless install --version 2020.3.48f1 --module android --childModules
+          # Install Unity editor
+          echo "=== Installing Unity 2020.3.48f1 ==="
+          unityhub --no-sandbox -- --headless install -v 2020.3.48f1 -m android 2>&1 || \
+          unityhub --no-sandbox -- --headless install --version 2020.3.48f1 --module android 2>&1 || \
+          echo "Install command failed, trying alternate syntax..."
           
-          # Verify
-          unityhub --no-sandbox --headless editors --installed
+          # Show installed editors
+          unityhub --no-sandbox -- --headless editors -i 2>&1 || \
+          unityhub --no-sandbox -- --headless editors --installed 2>&1 || true
           
-          # Activate license
-          echo "Activating license..."
-          unityhub --no-sandbox --headless license activate --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" --type personal
-          echo "Done!"
+          # List what was installed
+          find / -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null || true
+          echo "Done with Unity install step"
+
+      - name: Activate License
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          export DISPLAY=:1
+          echo "=== Activating Personal License ==="
+          # Try the Hub license command
+          unityhub --no-sandbox -- --headless license -a -u "$UNITY_EMAIL" -p "$UNITY_PASSWORD" -t personal 2>&1 || \
+          unityhub --no-sandbox -- --headless license activate -u "$UNITY_EMAIL" -p "$UNITY_PASSWORD" --type personal 2>&1 || \
+          echo "Hub license activation failed, will try editor -username -password"
+          
+          # Fallback: use Unity editor directly with credentials
+          UNITY=$(find / -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null | head -1)
+          if [ -n "$UNITY" ]; then
+            echo "Trying direct editor activation..."
+            "$UNITY" -batchmode -nographics -quit \
+              -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
+              -logFile - 2>&1 | tail -30 || true
+          fi
+          echo "License step done"
 
       - name: Build APK
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
-          export DISPLAY=:99
-          # Find the Unity editor
-          UNITY=$(find /root /home /opt -name "Unity" -type f -path "*/2020.3.48f1/Editor/Unity" 2>/dev/null | head -1)
-          if [ -z "$UNITY" ]; then
-            UNITY=$(find / -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null | head -1)
-          fi
+          export DISPLAY=:1
+          UNITY=$(find / -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null | head -1)
           echo "Unity editor: $UNITY"
+          
+          if [ -z "$UNITY" ]; then
+            echo "ERROR: Unity editor not found!"
+            find / -path "*/2020*" -name "Unity" 2>/dev/null || true
+            exit 1
+          fi
           
           "$UNITY" \
             -batchmode -nographics -quit \
+            -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
             -projectPath "$PWD/ExportedProject" \
             -executeMethod AndroidBuilder.BuildAndroid \
             -logFile - \
             -buildTarget Android
           
+          echo "=== Build output ==="
           ls -la ExportedProject/Build/
           find ExportedProject/Build -name "*.apk" -ls
 
