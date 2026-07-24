@@ -47,6 +47,12 @@ jobs:
           echo "=== ALF files ==="
           ls -la *.alf 2>/dev/null || echo "No .alf found in workspace"
 
+      - name: Print ALF content (for manual download)
+        run: |
+          echo "=== ALF FILE CONTENT START ==="
+          cat *.alf
+          echo ""
+          echo "=== ALF FILE CONTENT END ==="
       - name: Upload ALF artifact
         uses: actions/upload-artifact@v4
         with:
