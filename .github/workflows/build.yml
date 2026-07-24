@@ -1,31 +1,32 @@
-name: Build Android APK (ARMv7)
+name: Build Untitled Goose Game Android APK (ARMv7)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
     name: Build APK
-    runs-on: ubuntu-22.04
-    timeout-minutes: 90
-
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android /opt/hostedtoolcache
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android
           df -h
 
-      - name: Download project tarball
+      - name: Install zstd
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd
+
+      - name: Download project tarball from release
         env:
-          GH_TOKEN: ${{ secrets.PROJECT_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           ASSET_ID=$(cat project_asset_id.txt)
+          echo "Downloading asset $ASSET_ID..."
           curl -L \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/octet-stream" \
@@ -37,109 +38,72 @@ jobs:
           tar -xf project.tar
           rm project.tar
           ls -la ExportedProject/
+          df -h
 
-      - name: Apply overrides
+      - name: Apply local overrides
         run: |
           set -e
           if [ -d overrides ]; then
+            echo "Applying overrides:"
+            (cd overrides && find . -type f) | sed 's|^|  |'
             cp -rv overrides/* ExportedProject/ | tail -20
           fi
 
-      - name: Install Unity 2020.3.48f1 + Android (direct download)
-        run: |
-          set -e
-          # Download Unity editor directly from Unity's CDN (no Hub needed for install)
-          # Changeset: b805b124c6b7
-          echo "Downloading Unity 2020.3.48f1 Linux editor..."
-          wget -q "https://download.unity3d.com/download_unity/b805b124c6b7/LinuxEditorInstaller/Unity-2020.3.48f1.tar.xz" -O /tmp/unity.tar.xz || \
-          wget -q "https://download.unity3d.com/download_unity/b805b124c6b7/LinuxEditorInstaller/Unity.tar.xz" -O /tmp/unity.tar.xz
-          
-          echo "Extracting Unity editor..."
-          sudo mkdir -p /opt/unity
-          sudo tar -xf /tmp/unity.tar.xz -C /opt/unity
-          rm /tmp/unity.tar.xz
-          
-          # Find editor
-          UNITY=$(find /opt/unity -name "Unity" -type f -path "*/Editor/Unity" | head -1)
-          echo "Unity editor at: $UNITY"
-          "$UNITY" -version || true
-          
-          # Download Android support module
-          echo "Downloading Android build support..."
-          wget -q "https://download.unity3d.com/download_unity/b805b124c6b7/MacEditorTargetInstaller/UnitySetup-Android-Support-for-Editor-2020.3.48f1.pkg" -O /tmp/android.pkg 2>/dev/null || \
-          wget -q "https://download.unity3d.com/download_unity/b805b124c6b7/LinuxEditorTargetInstaller/UnitySetup-Android-Support-for-Editor-2020.3.48f1.tar.xz" -O /tmp/android.tar.xz 2>/dev/null || \
-          echo "Direct Android module download may need alternate path"
-          
-          if [ -f /tmp/android.tar.xz ]; then
-            sudo tar -xf /tmp/android.tar.xz -C /opt/unity
-            rm /tmp/android.tar.xz
-          fi
-          
-          # Check for Android tools
-          find /opt/unity -name "*.jar" -path "*android*" 2>/dev/null | head -5 || true
-          echo "Unity install done"
+      - name: Pull Unity Android editor image
+        run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
 
-      - name: Install Unity Hub for license activation
+      - name: Activate Unity Personal (online) + Build APK
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -e
-          sudo apt-get update -qq
-          sudo apt-get install -y xvfb libgbm1
-          
-          wget -qO - https://hub.unity3d.com/linux/keys/public | sudo gpg --dearmor -o /etc/apt/keyrings/unity-hub.gpg
-          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/unity-hub.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list
-          sudo apt-get update -qq
-          sudo apt-get install -y unityhub
-          
-          # Start Xvfb
-          Xvfb :1 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &
-          export DISPLAY=:1
-          sleep 3
-          
-          # Point Hub at our manually installed editor
-          UNITY_DIR=$(find /opt/unity -name "Unity" -type f -path "*/Editor/Unity" -exec dirname {} \; | head -1)
-          EDITOR_ROOT=$(dirname "$UNITY_DIR")
-          echo "Registering editor at: $EDITOR_ROOT"
-          unityhub --no-sandbox -- --headless editors --add "$EDITOR_ROOT" 2>&1 || true
-          unityhub --no-sandbox -- --headless editors -i 2>&1 || true
-          
-          # Activate license
-          echo "=== Activating license ==="
-          unityhub --no-sandbox -- --headless license -a -u "$UNITY_EMAIL" -p "$UNITY_PASSWORD" -t personal 2>&1 || true
-          
-          # Check license files
-          find /root -name "*.xml" -path "*license*" 2>/dev/null || true
-          find /home -name "*.xml" -path "*license*" 2>/dev/null || true
-          find $HOME -name "*.xml" -path "*license*" 2>/dev/null || true
-          echo "License step done"
+          # Write creds to env file (same as castle-port)
+          echo "UNITY_EMAIL=$UNITY_EMAIL" > /tmp/u.env
+          echo "UNITY_PASSWORD=$UNITY_PASSWORD" >> /tmp/u.env
+          echo "creds file lines: $(wc -l < /tmp/u.env)"
+          docker run --rm \
+            --env-file /tmp/u.env \
+            -v "$PWD/ExportedProject":/project \
+            -w /project \
+            unityci/editor:ubuntu-2020.3.48f1-android-3 \
+            bash -c '
+              set +e
+              echo "=== Activating Unity (online personal) ==="
+              LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
+              echo "licensing client: $LIC_CLIENT"
+              if [ -z "$LIC_CLIENT" ] || [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
+                echo "FATAL: missing license client or credentials"; exit 1
+              fi
+              "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+              echo "activate-all exit: $?"
+              "$LIC_CLIENT" --showEntitlements
+              echo "=== License file in container ==="
+              ls -la /root/.config/unity3d/Unity/licenses/ || true
 
-      - name: Build APK
-        env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+              echo "=== Running Unity build ==="
+              set -e
+              /opt/unity/Editor/Unity \
+                -batchmode -nographics -quit \
+                -projectPath /project \
+                -executeMethod AndroidBuilder.BuildAndroid \
+                -logFile /dev/stdout \
+                -buildTarget Android
+              echo "=== Build artifacts ==="
+              ls -la /project/Build/ || true
+              chown -R $(stat -c "%u:%g" /project) /project/Build || true
+            '
+
+      - name: List build output
+        if: always()
         run: |
-          export DISPLAY=:1
-          UNITY=$(find /opt/unity -name "Unity" -type f -path "*/Editor/Unity" | head -1)
-          echo "Unity editor: $UNITY"
-          
-          "$UNITY" \
-            -batchmode -nographics -quit \
-            -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
-            -projectPath "$PWD/ExportedProject" \
-            -executeMethod AndroidBuilder.BuildAndroid \
-            -logFile - \
-            -buildTarget Android
-          
-          echo "=== Build output ==="
-          ls -la ExportedProject/Build/
-          find ExportedProject/Build -name "*.apk" -ls
+          sudo chown -R $USER:$USER ExportedProject/Build 2>/dev/null || true
+          ls -la ExportedProject/Build/ || true
+          find ExportedProject/Build -name '*.apk' -ls || true
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: goose-apk
+          name: UntitledGooseGame-APK
           path: ExportedProject/Build/*.apk
           if-no-files-found: error
-          retention-days: 14
