@@ -55,7 +55,7 @@ jobs:
       - name: Activate Unity Personal (online) + Build APK
         env:
           UNITY_EMAIL: badamsgaming1977@gmail.com
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_PASSWORD: Sonic260987GHS@
         run: |
           set -e
           # Write creds to env file exactly like castle-port does
