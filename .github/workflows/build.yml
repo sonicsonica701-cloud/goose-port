@@ -60,15 +60,12 @@ jobs:
             echo "Build settings patched for ARMv7 32-bit"
           fi
 
-      - name: Activate Unity License
-        uses: buildalon/activate-unity-license@v2
-        with:
-          license: 'Personal'
-          username: ${{ secrets.UNITY_EMAIL }}
-          password: ${{ secrets.UNITY_PASSWORD }}
-
       - name: Build APK
         uses: game-ci/unity-builder@v4
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         with:
           projectPath: ExportedProject
           unityVersion: ${{ env.UNITY_VERSION }}
