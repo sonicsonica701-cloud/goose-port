@@ -1,0 +1,50 @@
+name: Generate Unity License Request (.alf)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    name: Generate ALF
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull Unity editor image
+        run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
+
+      - name: Generate ALF file
+        run: |
+          set -e
+          docker run --rm \
+            -v "$PWD":/output \
+            unityci/editor:ubuntu-2020.3.48f1-android-3 \
+            bash -c '
+              LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
+              echo "Using: $LIC_CLIENT"
+              
+              # Generate the activation request file
+              /opt/unity/Editor/Unity -batchmode -nographics -createManualActivationFile -logFile /dev/stdout || true
+              
+              echo "=== Looking for .alf file ==="
+              find / -name "*.alf" 2>/dev/null
+              
+              # Copy it to output
+              ALF=$(find / -name "*.alf" 2>/dev/null | head -1)
+              if [ -n "$ALF" ]; then
+                cp "$ALF" /output/
+                echo "ALF file copied to output"
+              else
+                echo "No .alf found, trying alternate method..."
+                "$LIC_CLIENT" --generate-alf --output /output/Unity_v2020.3.48f1.alf 2>&1 || true
+                find /output -name "*.alf" 2>/dev/null
+              fi
+            '
+          
+          echo "=== ALF files ==="
+          ls -la *.alf 2>/dev/null || echo "No .alf found in workspace"
+
+      - name: Upload ALF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-alf
+          path: "*.alf"
+          if-no-files-found: warn
