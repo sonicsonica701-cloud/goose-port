@@ -36,7 +36,6 @@ jobs:
 
       - name: Extract project
         run: |
-          sudo apt-get install -y zstd
           zstd -d project.tar.zst -o project.tar
           tar -xf project.tar
           rm project.tar project.tar.zst
@@ -54,30 +53,28 @@ jobs:
         run: |
           SETTINGS="ExportedProject/ProjectSettings/ProjectSettings.asset"
           if [ -f "$SETTINGS" ]; then
-            # Force ARMv7 only (AndroidTargetArchitectures: 1 = ARMv7)
             sed -i 's/AndroidTargetArchitectures:.*/AndroidTargetArchitectures: 1/' "$SETTINGS"
-            # Set minimum API level
             sed -i 's/AndroidMinSdkVersion:.*/AndroidMinSdkVersion: 22/' "$SETTINGS"
-            # Set target API
             sed -i 's/AndroidTargetSdkVersion:.*/AndroidTargetSdkVersion: 28/' "$SETTINGS"
-            # Force Mono scripting backend (0 = Mono, 1 = IL2CPP)
             sed -i 's/scriptingBackend:.*/scriptingBackend: {Android: 0}/' "$SETTINGS"
             echo "Build settings patched for ARMv7 32-bit"
           fi
 
+      - name: Activate Unity License
+        uses: buildalon/activate-unity-license@v2
+        with:
+          license: 'Personal'
+          username: ${{ secrets.UNITY_EMAIL }}
+          password: ${{ secrets.UNITY_PASSWORD }}
+
       - name: Build APK
         uses: game-ci/unity-builder@v4
-        env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           projectPath: ExportedProject
           unityVersion: ${{ env.UNITY_VERSION }}
           targetPlatform: Android
           buildName: ${{ env.BUILD_NAME }}
-          androidAppBundle: false
-          androidKeystoreName: ''
-          buildMethod: ''
+          androidExportType: androidPackage
           versioning: Custom
           version: 0.1.0
 
