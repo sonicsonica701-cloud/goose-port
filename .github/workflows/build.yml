@@ -54,12 +54,12 @@ jobs:
 
       - name: Activate Unity Personal (online) + Build APK
         env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_EMAIL: badamsgaming1977@gmail.com
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -e
           # Write creds to env file exactly like castle-port does
-          echo "UNITY_EMAIL=$UNITY_EMAIL" > /tmp/u.env
+          echo "UNITY_EMAIL=badamsgaming1977@gmail.com" > /tmp/u.env
           echo "UNITY_PASSWORD=$UNITY_PASSWORD" >> /tmp/u.env
           echo "creds file lines: $(wc -l < /tmp/u.env)"
           docker run --rm \
