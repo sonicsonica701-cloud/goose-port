@@ -58,20 +58,26 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -e
-          # Write creds to env file (same as castle-port)
-          echo "UNITY_EMAIL=$UNITY_EMAIL" > /tmp/u.env
-          echo "UNITY_PASSWORD=$UNITY_PASSWORD" >> /tmp/u.env
+          # Pass creds via env file exactly like castle-port does
+          printf 'UNITY_EMAIL=%s\n' "$UNITY_EMAIL" > /tmp/u.env
+          printf 'UNITY_PASSWORD=%s\n' "$UNITY_PASSWORD" >> /tmp/u.env
           echo "creds file lines: $(wc -l < /tmp/u.env)"
           echo "email length: ${#UNITY_EMAIL}"
           echo "password length: ${#UNITY_PASSWORD}"
+          # Debug: print md5 of creds to compare with castle (not the actual values)
+          echo "email md5: $(echo -n "$UNITY_EMAIL" | md5sum | cut -d' ' -f1)"
+          echo "pass md5: $(echo -n "$UNITY_PASSWORD" | md5sum | cut -d' ' -f1)"
           docker run --rm \
-            --env-file /tmp/u.env \
+            -e "UNITY_EMAIL=$UNITY_EMAIL" \
+            -e "UNITY_PASSWORD=$UNITY_PASSWORD" \
             -v "$PWD/ExportedProject":/project \
             -w /project \
             unityci/editor:ubuntu-2020.3.48f1-android-3 \
             bash -c '
               set +e
               echo "=== Activating Unity (online personal) ==="
+              echo "email inside docker: ${#UNITY_EMAIL} chars"
+              echo "password inside docker: ${#UNITY_PASSWORD} chars"
               LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
               echo "licensing client: $LIC_CLIENT"
               if [ -z "$LIC_CLIENT" ] || [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
