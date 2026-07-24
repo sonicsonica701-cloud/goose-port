@@ -58,6 +58,8 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -e
+          echo "email md5: $(echo -n "$UNITY_EMAIL" | md5sum | cut -d' ' -f1)"
+          echo "pass md5: $(echo -n "$UNITY_PASSWORD" | md5sum | cut -d' ' -f1)"
           docker run --rm \
             -e "UNITY_EMAIL=$UNITY_EMAIL" \
             -e "UNITY_PASSWORD=$UNITY_PASSWORD" \
