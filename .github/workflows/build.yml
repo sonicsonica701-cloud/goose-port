@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     name: Build APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
 
     steps:
@@ -17,7 +17,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android /opt/hostedtoolcache
           df -h
 
       - name: Download project tarball
@@ -37,61 +37,60 @@ jobs:
           tar -xf project.tar
           rm project.tar
           ls -la ExportedProject/
-          df -h
 
       - name: Apply overrides
         run: |
           set -e
           if [ -d overrides ]; then
-            echo "Applying overrides:"
-            (cd overrides && find . -type f) | sed 's|^|  |'
             cp -rv overrides/* ExportedProject/ | tail -20
           fi
 
-      - name: Install Unity Hub
+      - name: Install Unity Hub + Unity 2020.3.48f1
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
+          set -e
+          # Install deps
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb libgbm1 libasound2
+          
+          # Install Unity Hub
           wget -qO - https://hub.unity3d.com/linux/keys/public | sudo gpg --dearmor -o /etc/apt/keyrings/unity-hub.gpg
           echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/unity-hub.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list
           sudo apt-get update -qq
           sudo apt-get install -y unityhub
-          # Make xvfb available for headless Unity Hub
-          sudo apt-get install -y xvfb
-
-      - name: Install Unity 2020.3.48f1 with Android support
-        run: |
-          export DISPLAY=:99
+          
+          # Start virtual display
           Xvfb :99 -screen 0 1024x768x24 &
-          sleep 2
-          # Login to Unity Hub
-          xvfb-run unityhub --headless login --username "${{ secrets.UNITY_EMAIL }}" --password "${{ secrets.UNITY_PASSWORD }}"
-          # Install Unity with Android build support
-          xvfb-run unityhub --headless install --version 2020.3.48f1 --module android --childModules
-          # List installs to verify
-          xvfb-run unityhub --headless editors --installed
-          echo "Unity installed!"
-
-      - name: Activate Unity License
-        run: |
           export DISPLAY=:99
-          xvfb-run unityhub --headless license activate --username "${{ secrets.UNITY_EMAIL }}" --password "${{ secrets.UNITY_PASSWORD }}" --type personal
-          echo "License activated!"
-
-      - name: Find Unity Editor path
-        id: unity-path
-        run: |
-          UNITY_PATH=$(find /opt/unityhub -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null || find ~/Unity -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null || find /home -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null)
-          echo "UNITY_EDITOR=$UNITY_PATH" >> $GITHUB_OUTPUT
-          echo "Found Unity at: $UNITY_PATH"
+          sleep 2
+          
+          # Login
+          echo "Logging in..."
+          unityhub --no-sandbox --headless login --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+          
+          # Install Unity with Android module
+          echo "Installing Unity 2020.3.48f1 + Android..."
+          unityhub --no-sandbox --headless install --version 2020.3.48f1 --module android --childModules
+          
+          # Verify
+          unityhub --no-sandbox --headless editors --installed
+          
+          # Activate license
+          echo "Activating license..."
+          unityhub --no-sandbox --headless license activate --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" --type personal
+          echo "Done!"
 
       - name: Build APK
         run: |
           export DISPLAY=:99
-          UNITY="${{ steps.unity-path.outputs.UNITY_EDITOR }}"
+          # Find the Unity editor
+          UNITY=$(find /root /home /opt -name "Unity" -type f -path "*/2020.3.48f1/Editor/Unity" 2>/dev/null | head -1)
           if [ -z "$UNITY" ]; then
-            echo "Searching for Unity editor..."
             UNITY=$(find / -name "Unity" -type f -path "*/Editor/Unity" 2>/dev/null | head -1)
           fi
-          echo "Using Unity at: $UNITY"
+          echo "Unity editor: $UNITY"
           
           "$UNITY" \
             -batchmode -nographics -quit \
@@ -100,9 +99,8 @@ jobs:
             -logFile - \
             -buildTarget Android
           
-          echo "=== Build output ==="
-          ls -la ExportedProject/Build/ || true
-          find ExportedProject/Build -name "*.apk" -ls || true
+          ls -la ExportedProject/Build/
+          find ExportedProject/Build -name "*.apk" -ls
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
