@@ -62,6 +62,8 @@ jobs:
           echo "UNITY_EMAIL=$UNITY_EMAIL" > /tmp/u.env
           echo "UNITY_PASSWORD=$UNITY_PASSWORD" >> /tmp/u.env
           echo "creds file lines: $(wc -l < /tmp/u.env)"
+          echo "email length: ${#UNITY_EMAIL}"
+          echo "password length: ${#UNITY_PASSWORD}"
           docker run --rm \
             --env-file /tmp/u.env \
             -v "$PWD/ExportedProject":/project \
