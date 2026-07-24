@@ -5,79 +5,103 @@ on:
     branches: [main]
   workflow_dispatch:
 
-env:
-  UNITY_VERSION: 2020.3.48f1
-  TARGET_PLATFORM: Android
-  BUILD_NAME: UntitledGooseGame
-
 jobs:
   build:
+    name: Build APK
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android
+          df -h
 
       - name: Download project tarball
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_PAT }}
         run: |
+          set -e
           ASSET_ID=$(cat project_asset_id.txt)
-          curl -L -H "Authorization: Bearer ${{ secrets.PROJECT_PAT }}" \
-               -H "Accept: application/octet-stream" \
-               "https://api.github.com/repos/sonicsonica701-cloud/goose-port/releases/assets/$ASSET_ID" \
-               -o project.tar.zst
+          echo "Downloading asset $ASSET_ID..."
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/assets/${ASSET_ID}" \
+            -o project.tar.zst
           ls -lh project.tar.zst
-          echo "Downloaded tarball"
-
-      - name: Extract project
-        run: |
           zstd -d project.tar.zst -o project.tar
+          rm project.tar.zst
           tar -xf project.tar
-          rm project.tar project.tar.zst
+          rm project.tar
           ls -la ExportedProject/
-          echo "Project extracted"
+          df -h
 
       - name: Apply overrides
         run: |
-          if [ -d "overrides" ]; then
-            cp -rv overrides/* ExportedProject/ 2>/dev/null || true
-            echo "Overrides applied"
+          set -e
+          if [ -d overrides ]; then
+            echo "Applying overrides:"
+            (cd overrides && find . -type f) | sed 's|^|  |'
+            cp -rv overrides/* ExportedProject/ | tail -20
           fi
 
-      - name: Set Android build settings
-        run: |
-          SETTINGS="ExportedProject/ProjectSettings/ProjectSettings.asset"
-          if [ -f "$SETTINGS" ]; then
-            sed -i 's/AndroidTargetArchitectures:.*/AndroidTargetArchitectures: 1/' "$SETTINGS"
-            sed -i 's/AndroidMinSdkVersion:.*/AndroidMinSdkVersion: 22/' "$SETTINGS"
-            sed -i 's/AndroidTargetSdkVersion:.*/AndroidTargetSdkVersion: 28/' "$SETTINGS"
-            sed -i 's/scriptingBackend:.*/scriptingBackend: {Android: 0}/' "$SETTINGS"
-            echo "Build settings patched for ARMv7 32-bit"
-          fi
+      - name: Pull Unity Android editor image
+        run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
 
-      - name: Build APK
-        uses: game-ci/unity-builder@v4
+      - name: Activate Unity Personal + Build APK
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        with:
-          projectPath: ExportedProject
-          unityVersion: ${{ env.UNITY_VERSION }}
-          targetPlatform: Android
-          buildName: ${{ env.BUILD_NAME }}
-          androidExportType: androidPackage
-          versioning: Custom
-          version: 0.1.0
+        run: |
+          set -e
+          echo "UNITY_EMAIL=$UNITY_EMAIL" > /tmp/u.env
+          echo "UNITY_PASSWORD=$UNITY_PASSWORD" >> /tmp/u.env
+          docker run --rm \
+            --env-file /tmp/u.env \
+            -v "$PWD/ExportedProject":/project \
+            -w /project \
+            unityci/editor:ubuntu-2020.3.48f1-android-3 \
+            bash -c '
+              set +e
+              echo "=== Activating Unity (online personal) ==="
+              LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
+              echo "licensing client: $LIC_CLIENT"
+              if [ -z "$LIC_CLIENT" ] || [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
+                echo "FATAL: missing license client or credentials"; exit 1
+              fi
+              "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+              echo "activate-all exit: $?"
+              "$LIC_CLIENT" --showEntitlements
+              echo "=== License activated ==="
+
+              echo "=== Running Unity build ==="
+              set -e
+              /opt/unity/Editor/Unity \
+                -batchmode -nographics -quit \
+                -projectPath /project \
+                -executeMethod AndroidBuilder.BuildAndroid \
+                -logFile /dev/stdout \
+                -buildTarget Android
+              echo "=== Build complete ==="
+              ls -la /project/Build/ || true
+              chown -R $(stat -c "%u:%g" /project) /project/Build || true
+            '
+
+      - name: List build output
+        if: always()
+        run: |
+          sudo chown -R $USER:$USER ExportedProject/Build 2>/dev/null || true
+          ls -la ExportedProject/Build/ || true
+          find ExportedProject/Build -name "*.apk" -ls || true
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: goose-apk
-          path: build/Android/*.apk
+          path: ExportedProject/Build/*.apk
+          if-no-files-found: error
           retention-days: 14
