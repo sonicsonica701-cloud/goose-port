@@ -52,7 +52,7 @@ jobs:
       - name: Pull Unity Android editor image
         run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
 
-      - name: Activate Unity Personal + Build APK
+      - name: Activate Unity + Build APK
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
@@ -66,26 +66,44 @@ jobs:
             -w /project \
             unityci/editor:ubuntu-2020.3.48f1-android-3 \
             bash -c '
-              set +e
-              echo "=== Activating Unity (online personal) ==="
-              LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
-              echo "licensing client: $LIC_CLIENT"
-              if [ -z "$LIC_CLIENT" ] || [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
-                echo "FATAL: missing license client or credentials"; exit 1
-              fi
-              "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
-              echo "activate-all exit: $?"
-              "$LIC_CLIENT" --showEntitlements
-              echo "=== License activated ==="
-
-              echo "=== Running Unity build ==="
               set -e
+              echo "=== Attempting Unity activation via editor CLI ==="
+
+              # Method 1: Try creating a manual license activation
               /opt/unity/Editor/Unity \
                 -batchmode -nographics -quit \
+                -createManualActivationFile \
+                -logFile /dev/stdout 2>&1 || true
+
+              # Check if .alf was created
+              ALF=$(find / -name "*.alf" 2>/dev/null | head -1)
+              echo "ALF file: $ALF"
+
+              # Method 2: Direct login via editor (older approach)
+              echo "=== Trying direct editor login ==="
+              /opt/unity/Editor/Unity \
+                -batchmode -nographics -quit \
+                -username "$UNITY_EMAIL" \
+                -password "$UNITY_PASSWORD" \
+                -logFile /dev/stdout 2>&1 || true
+
+              # Check license state
+              echo "=== License files ==="
+              find /root -name "*.xml" -path "*license*" 2>/dev/null
+              find /root -name "*.ulf" 2>/dev/null
+              ls -la /root/.config/unity3d/Unity/licenses/ 2>/dev/null || true
+              ls -la /root/.local/share/unity3d/Unity/ 2>/dev/null || true
+
+              echo "=== Now attempting build ==="
+              /opt/unity/Editor/Unity \
+                -batchmode -nographics -quit \
+                -username "$UNITY_EMAIL" \
+                -password "$UNITY_PASSWORD" \
                 -projectPath /project \
                 -executeMethod AndroidBuilder.BuildAndroid \
                 -logFile /dev/stdout \
                 -buildTarget Android
+
               echo "=== Build complete ==="
               ls -la /project/Build/ || true
               chown -R $(stat -c "%u:%g" /project) /project/Build || true
