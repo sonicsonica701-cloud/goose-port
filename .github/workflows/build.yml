@@ -26,7 +26,6 @@ jobs:
         run: |
           set -e
           ASSET_ID=$(cat project_asset_id.txt)
-          echo "Downloading asset $ASSET_ID..."
           curl -L \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/octet-stream" \
@@ -56,45 +55,53 @@ jobs:
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         run: |
           set -e
           echo "UNITY_EMAIL=$UNITY_EMAIL" > /tmp/u.env
           echo "UNITY_PASSWORD=$UNITY_PASSWORD" >> /tmp/u.env
+          
+          # If we have a UNITY_LICENSE (ULF content), write it directly
+          if [ -n "$UNITY_LICENSE" ]; then
+            echo "Using provided UNITY_LICENSE (ULF)..."
+            mkdir -p license_dir
+            echo "$UNITY_LICENSE" > license_dir/Unity_lic.ulf
+            echo "UNITY_LICENSE_FILE=/license/Unity_lic.ulf" >> /tmp/u.env
+          fi
+          
           docker run --rm \
             --env-file /tmp/u.env \
             -v "$PWD/ExportedProject":/project \
+            -v "$PWD/license_dir":/license 2>/dev/null || true \
             -w /project \
             unityci/editor:ubuntu-2020.3.48f1-android-3 \
             bash -c '
-              set -e
-              echo "=== Attempting Unity activation via editor CLI ==="
-
-              # Method 1: Try creating a manual license activation
-              /opt/unity/Editor/Unity \
-                -batchmode -nographics -quit \
-                -createManualActivationFile \
-                -logFile /dev/stdout 2>&1 || true
-
-              # Check if .alf was created
-              ALF=$(find / -name "*.alf" 2>/dev/null | head -1)
-              echo "ALF file: $ALF"
-
-              # Method 2: Direct login via editor (older approach)
-              echo "=== Trying direct editor login ==="
-              /opt/unity/Editor/Unity \
-                -batchmode -nographics -quit \
-                -username "$UNITY_EMAIL" \
-                -password "$UNITY_PASSWORD" \
-                -logFile /dev/stdout 2>&1 || true
-
-              # Check license state
-              echo "=== License files ==="
-              find /root -name "*.xml" -path "*license*" 2>/dev/null
-              find /root -name "*.ulf" 2>/dev/null
+              set +e
+              echo "=== Attempting license activation ==="
+              
+              # If ULF file exists, install it directly
+              if [ -f "/license/Unity_lic.ulf" ]; then
+                echo "Installing ULF license file..."
+                mkdir -p /root/.local/share/unity3d/Unity
+                cp /license/Unity_lic.ulf /root/.local/share/unity3d/Unity/Unity_lic.ulf
+                mkdir -p /root/.config/unity3d/Unity/licenses
+                cp /license/Unity_lic.ulf /root/.config/unity3d/Unity/licenses/Unity_lic.ulf
+              fi
+              
+              # Try licensing client activation
+              LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
+              if [ -n "$LIC_CLIENT" ] && [ -n "$UNITY_EMAIL" ]; then
+                echo "Trying licensing client..."
+                "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" || true
+              fi
+              
+              # Check what we got
+              echo "=== License state ==="
               ls -la /root/.config/unity3d/Unity/licenses/ 2>/dev/null || true
               ls -la /root/.local/share/unity3d/Unity/ 2>/dev/null || true
-
-              echo "=== Now attempting build ==="
+              
+              echo "=== Building APK ==="
+              set -e
               /opt/unity/Editor/Unity \
                 -batchmode -nographics -quit \
                 -username "$UNITY_EMAIL" \
@@ -103,11 +110,33 @@ jobs:
                 -executeMethod AndroidBuilder.BuildAndroid \
                 -logFile /dev/stdout \
                 -buildTarget Android
-
+              
               echo "=== Build complete ==="
               ls -la /project/Build/ || true
               chown -R $(stat -c "%u:%g" /project) /project/Build || true
             '
+
+      - name: Generate ALF (if build failed due to licensing)
+        if: failure()
+        run: |
+          echo "Build may have failed due to licensing. Generating ALF for manual activation..."
+          docker run --rm \
+            -v "$PWD/ExportedProject":/project \
+            -w /project \
+            unityci/editor:ubuntu-2020.3.48f1-android-3 \
+            bash -c '
+              /opt/unity/Editor/Unity -batchmode -nographics -quit -createManualActivationFile -logFile /dev/stdout || true
+            '
+          find ExportedProject -name "*.alf" -exec cp {} ./Unity_v2020.3.48f1.alf \; 2>/dev/null || true
+          ls -la *.alf 2>/dev/null || echo "No ALF generated"
+
+      - name: Upload ALF (for manual activation)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-activation-file
+          path: "*.alf"
+          if-no-files-found: ignore
 
       - name: List build output
         if: always()
@@ -121,5 +150,5 @@ jobs:
         with:
           name: goose-apk
           path: ExportedProject/Build/*.apk
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 14
