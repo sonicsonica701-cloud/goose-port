@@ -53,23 +53,18 @@ jobs:
         run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
 
       - name: Activate Unity Personal (online) + Build APK
-        env:
-          UNITY_EMAIL: badamsgaming1977@gmail.com
-          UNITY_PASSWORD: Sonic260987GHS@
         run: |
           set -e
-          # Write creds to env file exactly like castle-port does
-          echo "UNITY_EMAIL=badamsgaming1977@gmail.com" > /tmp/u.env
-          echo "UNITY_PASSWORD=$UNITY_PASSWORD" >> /tmp/u.env
-          echo "creds file lines: $(wc -l < /tmp/u.env)"
           docker run --rm \
-            --env-file /tmp/u.env \
+            -e 'UNITY_EMAIL=badamsgaming1977@gmail.com' \
+            -e 'UNITY_PASSWORD=Sonic260987GHS@' \
             -v "$PWD/ExportedProject":/project \
             -w /project \
             unityci/editor:ubuntu-2020.3.48f1-android-3 \
             bash -c '
               set +e
               echo "=== Activating Unity (online personal) ==="
+              echo "email: ${#UNITY_EMAIL} chars, pass: ${#UNITY_PASSWORD} chars"
               LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
               echo "licensing client: $LIC_CLIENT"
               if [ -z "$LIC_CLIENT" ] || [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
