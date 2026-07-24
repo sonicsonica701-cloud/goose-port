@@ -58,15 +58,6 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -e
-          # Pass creds via env file exactly like castle-port does
-          printf 'UNITY_EMAIL=%s\n' "$UNITY_EMAIL" > /tmp/u.env
-          printf 'UNITY_PASSWORD=%s\n' "$UNITY_PASSWORD" >> /tmp/u.env
-          echo "creds file lines: $(wc -l < /tmp/u.env)"
-          echo "email length: ${#UNITY_EMAIL}"
-          echo "password length: ${#UNITY_PASSWORD}"
-          # Debug: print md5 of creds to compare with castle (not the actual values)
-          echo "email md5: $(echo -n "$UNITY_EMAIL" | md5sum | cut -d' ' -f1)"
-          echo "pass md5: $(echo -n "$UNITY_PASSWORD" | md5sum | cut -d' ' -f1)"
           docker run --rm \
             -e "UNITY_EMAIL=$UNITY_EMAIL" \
             -e "UNITY_PASSWORD=$UNITY_PASSWORD" \
@@ -75,19 +66,34 @@ jobs:
             unityci/editor:ubuntu-2020.3.48f1-android-3 \
             bash -c '
               set +e
-              echo "=== Activating Unity (online personal) ==="
-              echo "email inside docker: ${#UNITY_EMAIL} chars"
-              echo "password inside docker: ${#UNITY_PASSWORD} chars"
+              echo "=== Releasing any existing seat ==="
               LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
               echo "licensing client: $LIC_CLIENT"
               if [ -z "$LIC_CLIENT" ] || [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
                 echo "FATAL: missing license client or credentials"; exit 1
               fi
+
+              # Release any existing seat first so this new machine can take it
+              "$LIC_CLIENT" --release --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" || true
+              sleep 2
+
+              echo "=== Activating Unity (online personal) ==="
               "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
-              echo "activate-all exit: $?"
+              ACTIVATE_EXIT=$?
+              echo "activate-all exit: $ACTIVATE_EXIT"
+
+              if [ $ACTIVATE_EXIT -ne 0 ]; then
+                echo "First activate failed, retrying after 5s..."
+                sleep 5
+                "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+                ACTIVATE_EXIT=$?
+                echo "retry activate-all exit: $ACTIVATE_EXIT"
+              fi
+
               "$LIC_CLIENT" --showEntitlements
               echo "=== License file in container ==="
               ls -la /root/.config/unity3d/Unity/licenses/ || true
+              cat /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml 2>/dev/null | head -5 || true
 
               echo "=== Running Unity build ==="
               set -e
