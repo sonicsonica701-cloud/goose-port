@@ -49,6 +49,20 @@ jobs:
             cp -rv overrides/* ExportedProject/ | tail -20
           fi
 
+      - name: Fix deprecated API calls
+        run: |
+          set -e
+          echo "=== Fixing deprecated Graphics.DrawProceduralIndirect ==="
+          DOF_FILE="ExportedProject/Assets/Plugins/Assembly-CSharp-firstpass/UnityStandardAssets/ImageEffects/DepthOfField.cs"
+          if [ -f "$DOF_FILE" ]; then
+            sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' "$DOF_FILE"
+            echo "Fixed DepthOfField.cs"
+            grep -n "DrawProcedural" "$DOF_FILE" || true
+          else
+            echo "DepthOfField.cs not found at expected path, searching..."
+            find ExportedProject -name "DepthOfField.cs" -exec sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' {} \; -print
+          fi
+
       - name: Pull Unity Android editor image
         run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
 
@@ -68,8 +82,6 @@ jobs:
               echo "=== License verification ==="
               ls -la /root/.config/unity3d/Unity/licenses/
               grep -o "com.unity.editor[^\"]*" /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml || true
-              echo "=== Machine ID check ==="
-              cat /etc/machine-id 2>/dev/null || echo "no machine-id"
 
               echo "=== Running Unity build ==="
               /opt/unity/Editor/Unity \
