@@ -69,37 +69,38 @@ jobs:
               LIC_CLIENT=$(find /opt/unity -name "Unity.Licensing.Client" -type f 2>/dev/null | head -1)
               echo "licensing client: $LIC_CLIENT"
 
-              # Step 1: Return/release any seats held elsewhere
-              echo "=== Returning all licenses ==="
-              "$LIC_CLIENT" --return-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" 2>&1 || true
+              # Step 1: Deactivate all existing seats so this machine can claim one
+              echo "=== Deactivating all existing seats ==="
+              "$LIC_CLIENT" --deactivate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+              echo "deactivate-all exit: $?"
               sleep 3
 
-              # Step 2: Activate on this machine
-              echo "=== Activating Unity ==="
+              # Step 2: Activate on this machine (fresh seat available now)
+              echo "=== Activating Unity on this machine ==="
               "$LIC_CLIENT" --activate-all --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
               echo "activate-all exit: $?"
 
-              # Step 3: Show what we got
+              # Step 3: Verify
               "$LIC_CLIENT" --showEntitlements
               echo "=== License files ==="
               ls -la /root/.config/unity3d/Unity/licenses/ 2>/dev/null || echo "no license dir"
-              
-              # If no license file, try passing creds directly to editor
-              if [ ! -f /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml ]; then
-                echo "=== No license file, passing creds to editor directly ==="
+
+              # Step 4: Build
+              if [ -f /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml ]; then
+                echo "=== License OK, building without creds ==="
                 set -e
                 /opt/unity/Editor/Unity \
                   -batchmode -nographics -quit \
-                  -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
                   -projectPath /project \
                   -executeMethod AndroidBuilder.BuildAndroid \
                   -logFile /dev/stdout \
                   -buildTarget Android
               else
-                echo "=== License file exists, building ==="
+                echo "=== No license file, building with creds ==="
                 set -e
                 /opt/unity/Editor/Unity \
                   -batchmode -nographics -quit \
+                  -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
                   -projectPath /project \
                   -executeMethod AndroidBuilder.BuildAndroid \
                   -logFile /dev/stdout \
