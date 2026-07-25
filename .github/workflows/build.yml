@@ -58,86 +58,191 @@ jobs:
           echo "=== Fixing deprecated Graphics.DrawProceduralIndirect ==="
           find ExportedProject -name "DepthOfField.cs" -exec sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' {} \; -print
 
-      - name: Build FMOD stub native libraries
+      - name: Build FMOD stub native libraries (FMOD5_ ABI)
         run: |
           set -e
-          echo "=== Building FMOD stub .so for armeabi-v7a ==="
+          echo "=== Building FMOD stub .so for armeabi-v7a (FMOD5_ prefix) ==="
           ARM_CC="arm-linux-gnueabihf-gcc"
 
-          # Stub C source for libfmod.so
+          # The Unity FMOD binding uses FMOD5_ prefix for the native C functions
           cat > /tmp/fmod_stub.c << 'STUBEOF'
           typedef int FMOD_RESULT;
+          typedef unsigned int FMOD_BOOL;
           #define FMOD_OK 0
-          FMOD_RESULT FMOD_System_Create(void** s) { if(s) *s=(void*)0x1; return FMOD_OK; }
-          FMOD_RESULT FMOD_System_Init(void* s, int m, int f, void* e) { return FMOD_OK; }
-          FMOD_RESULT FMOD_System_Close(void* s) { return FMOD_OK; }
-          FMOD_RESULT FMOD_System_Release(void* s) { return FMOD_OK; }
-          FMOD_RESULT FMOD_System_Update(void* s) { return FMOD_OK; }
-          FMOD_RESULT FMOD_System_CreateSound(void* s,const char* n,int m,void* i,void** o){if(o)*o=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_System_PlaySound(void* s,void* snd,void* g,int p,void** c){if(c)*c=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_System_GetVersion(void* s,unsigned int* v){if(v)*v=0x00020109;return FMOD_OK;}
-          FMOD_RESULT FMOD_System_SetOutput(void* s,int o){return FMOD_OK;}
-          FMOD_RESULT FMOD_System_SetSoftwareFormat(void* s,int r,int m,int n){return FMOD_OK;}
-          FMOD_RESULT FMOD_System_GetMasterChannelGroup(void* s,void** g){if(g)*g=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Sound_Release(void* s){return FMOD_OK;}
-          FMOD_RESULT FMOD_Channel_Stop(void* c){return FMOD_OK;}
-          FMOD_RESULT FMOD_Channel_SetVolume(void* c,float v){return FMOD_OK;}
-          FMOD_RESULT FMOD_Channel_IsPlaying(void* c,int* p){if(p)*p=0;return FMOD_OK;}
-          FMOD_RESULT FMOD_ChannelGroup_SetVolume(void* g,float v){return FMOD_OK;}
-          FMOD_RESULT FMOD_Memory_Initialize(void* p,int l,void* a,void* r,void* f,int t){return FMOD_OK;}
-          FMOD_RESULT FMOD_Debug_Initialize(int f,int m,void* c,const char* fn){return FMOD_OK;}
+
+          /* === FMOD5_ prefixed functions (what Unity C# binding actually calls) === */
+          FMOD_RESULT FMOD5_Memory_GetStats(int* currentalloced, int* maxalloced, FMOD_BOOL blocking) {
+            if(currentalloced) *currentalloced = 0;
+            if(maxalloced) *maxalloced = 0;
+            return FMOD_OK;
+          }
+          FMOD_RESULT FMOD5_Memory_Initialize(void* pool, int poollen, void* alloc, void* realloc, void* free, int type) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Debug_Initialize(int flags, int mode, void* callback, const char* filename) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_Create(void** system, unsigned int headerversion) { if(system) *system=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_Init(void* sys, int maxchannels, int flags, void* extra) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_Close(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_Release(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_Update(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_SetOutput(void* sys, int output) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_GetVersion(void* sys, unsigned int* version) { if(version) *version=0x00020109; return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_GetNumDrivers(void* sys, int* numdrivers) { if(numdrivers) *numdrivers=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_GetDriverInfo(void* sys, int id, char* name, int namelen, void* guid, int* rate, int* mode, int* channels) { if(rate)*rate=48000; if(channels)*channels=2; return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_SetSoftwareFormat(void* sys, int rate, int mode, int numraw) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_SetSoftwareChannels(void* sys, int numsoftwarechannels) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_SetDSPBufferSize(void* sys, unsigned int size, int count) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_SetAdvancedSettings(void* sys, void* settings) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_GetMasterChannelGroup(void* sys, void** group) { if(group) *group=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_CreateSound(void* sys, const char* url, int mode, void* info, void** sound) { if(sound) *sound=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_PlaySound(void* sys, void* sound, void* grp, FMOD_BOOL paused, void** channel) { if(channel) *channel=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_MixerSuspend(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_MixerResume(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_AttachChannelGroupToPort(void* sys, int portType, long long portIndex, void* cg, FMOD_BOOL passThru) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_System_DetachChannelGroupFromPort(void* sys, void* cg) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Sound_Release(void* sound) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Sound_GetLength(void* sound, unsigned int* length, int type) { if(length) *length=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Channel_Stop(void* ch) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Channel_SetVolume(void* ch, float vol) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Channel_GetPosition(void* ch, unsigned int* pos, int unit) { if(pos) *pos=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Channel_IsPlaying(void* ch, FMOD_BOOL* playing) { if(playing) *playing=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Channel_SetPaused(void* ch, FMOD_BOOL paused) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_ChannelGroup_SetVolume(void* cg, float vol) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_ChannelGroup_GetVolume(void* cg, float* vol) { if(vol) *vol=1.0f; return FMOD_OK; }
+          FMOD_RESULT FMOD5_ChannelGroup_Stop(void* cg) { return FMOD_OK; }
           STUBEOF
 
-          # Stub C source for libfmodstudio.so
           cat > /tmp/fmodstudio_stub.c << 'STUBEOF'
           typedef int FMOD_RESULT;
+          typedef unsigned int FMOD_BOOL;
           #define FMOD_OK 0
-          FMOD_RESULT FMOD_Studio_System_Create(void** s,unsigned int h){if(s)*s=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_Initialize(void* s,int m,int sf,int f,void* e){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_Release(void* s){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_Update(void* s){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_GetCoreSystem(void* s,void** c){if(c)*c=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_LoadBankFile(void* s,const char* f,int fl,void** b){if(b)*b=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_LoadBankMemory(void* s,const char* b,int l,int m,int f,void** bk){if(bk)*bk=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_GetEvent(void* s,const char* p,void** e){if(e)*e=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_GetBus(void* s,const char* p,void** b){if(b)*b=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_GetVCA(void* s,const char* p,void** v){if(v)*v=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_LookupID(void* s,const char* p,void* id){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_FlushCommands(void* s){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_FlushSampleLoading(void* s){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_System_SetListenerAttributes(void* s,int i,void* a,void* v){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventDescription_CreateInstance(void* d,void** i){if(i)*i=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventDescription_GetInstanceCount(void* d,int* c){if(c)*c=0;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventDescription_IsOneshot(void* d,int* o){if(o)*o=1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventDescription_Is3D(void* d,int* i){if(i)*i=0;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventInstance_Start(void* i){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventInstance_Stop(void* i,int m){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventInstance_Release(void* i){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventInstance_SetParameterByName(void* i,const char* n,float v,int s){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventInstance_GetParameterByName(void* i,const char* n,float* v,float* f){if(v)*v=0;if(f)*f=0;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventInstance_Set3DAttributes(void* i,void* a){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventInstance_GetPlaybackState(void* i,int* s){if(s)*s=2;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventInstance_SetVolume(void* i,float v){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_EventInstance_GetDescription(void* i,void** d){if(d)*d=(void*)0x1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_Bank_Unload(void* b){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_Bank_GetEventCount(void* b,int* c){if(c)*c=0;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_Bank_LoadSampleData(void* b){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_Bank_GetLoadingState(void* b,int* s){if(s)*s=2;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_Bus_SetVolume(void* b,float v){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_Bus_GetVolume(void* b,float* v,float* f){if(v)*v=1;if(f)*f=1;return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_Bus_SetPaused(void* b,int p){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_VCA_SetVolume(void* v,float vol){return FMOD_OK;}
-          FMOD_RESULT FMOD_Studio_VCA_GetVolume(void* v,float* vol,float* f){if(vol)*vol=1;if(f)*f=1;return FMOD_OK;}
+
+          /* === FMOD Studio 5 prefixed functions === */
+          FMOD_RESULT FMOD5_Studio_System_Create(void** system, unsigned int headerversion) { if(system) *system=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_IsValid(void* sys, FMOD_BOOL* valid) { if(valid) *valid=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_Initialize(void* sys, int maxch, int studioflags, int flags, void* extra) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_Release(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_Update(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetCoreSystem(void* sys, void** core) { if(core) *core=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_FlushCommands(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_FlushSampleLoading(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_SetListenerAttributes(void* sys, int idx, void* attr, void* atten) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetListenerAttributes(void* sys, int idx, void* attr, void* atten) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_LoadBankFile(void* sys, const char* f, int flags, void** bank) { if(bank) *bank=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_LoadBankMemory(void* sys, const char* buf, int len, int mode, int flags, void** bank) { if(bank) *bank=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_LoadBankCustom(void* sys, void* info, int flags, void** bank) { if(bank) *bank=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_UnloadAll(void* sys) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetEvent(void* sys, const char* path, void** event) { if(event) *event=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetBus(void* sys, const char* path, void** bus) { if(bus) *bus=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetVCA(void* sys, const char* path, void** vca) { if(vca) *vca=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetBank(void* sys, const char* path, void** bank) { if(bank) *bank=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetEventByID(void* sys, void* id, void** event) { if(event) *event=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetBusByID(void* sys, void* id, void** bus) { if(bus) *bus=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetVCAByID(void* sys, void* id, void** vca) { if(vca) *vca=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetBankByID(void* sys, void* id, void** bank) { if(bank) *bank=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_LookupID(void* sys, const char* path, void* id) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_LookupPath(void* sys, void* id, char* path, int size, int* retrieved) { if(retrieved) *retrieved=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_SetNumListeners(void* sys, int num) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetNumListeners(void* sys, int* num) { if(num) *num=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_GetBufferUsage(void* sys, void* info) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_System_ResetBufferUsage(void* sys) { return FMOD_OK; }
+
+          FMOD_RESULT FMOD5_Studio_EventDescription_CreateInstance(void* desc, void** inst) { if(inst) *inst=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetInstanceCount(void* desc, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetInstanceList(void* desc, void** array, int cap, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_IsOneshot(void* desc, FMOD_BOOL* oneshot) { if(oneshot) *oneshot=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_IsStream(void* desc, FMOD_BOOL* stream) { if(stream) *stream=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_Is3D(void* desc, FMOD_BOOL* is3d) { if(is3d) *is3d=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_IsSnapshot(void* desc, FMOD_BOOL* snap) { if(snap) *snap=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_HasSustainPoint(void* desc, FMOD_BOOL* has) { if(has) *has=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetLength(void* desc, int* len) { if(len) *len=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetPath(void* desc, char* path, int size, int* retrieved) { if(retrieved) *retrieved=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetID(void* desc, void* id) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetParameterDescriptionByName(void* desc, const char* name, void* param) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetParameterDescriptionByIndex(void* desc, int idx, void* param) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetParameterDescriptionCount(void* desc, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_IsValid(void* desc, FMOD_BOOL* valid) { if(valid) *valid=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetMinMaxDistance(void* desc, float* min, float* max) { if(min) *min=0; if(max) *max=100; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetSoundSize(void* desc, float* size) { if(size) *size=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetParameterDescriptionByID(void* desc, void* id, void* param) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventDescription_GetUserPropertyCount(void* desc, int* count) { if(count) *count=0; return FMOD_OK; }
+
+          FMOD_RESULT FMOD5_Studio_EventInstance_Start(void* inst) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_Stop(void* inst, int mode) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_Release(void* inst) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_IsValid(void* inst, FMOD_BOOL* valid) { if(valid) *valid=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetDescription(void* inst, void** desc) { if(desc) *desc=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetPlaybackState(void* inst, int* state) { if(state) *state=2; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetParameterByName(void* inst, const char* name, float val, FMOD_BOOL ignoreseek) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetParameterByName(void* inst, const char* name, float* val, float* finalval) { if(val)*val=0; if(finalval)*finalval=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetParameterByID(void* inst, void* id, float val, FMOD_BOOL ignoreseek) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetParameterByID(void* inst, void* id, float* val, float* finalval) { if(val)*val=0; if(finalval)*finalval=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_Set3DAttributes(void* inst, void* attr) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_Get3DAttributes(void* inst, void* attr) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetVolume(void* inst, float vol) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetVolume(void* inst, float* vol, float* finalvol) { if(vol)*vol=1; if(finalvol)*finalvol=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetPitch(void* inst, float pitch) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetPitch(void* inst, float* pitch, float* finalpitch) { if(pitch)*pitch=1; if(finalpitch)*finalpitch=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetPaused(void* inst, FMOD_BOOL paused) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetPaused(void* inst, FMOD_BOOL* paused) { if(paused) *paused=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetProperty(void* inst, int idx, float val) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetProperty(void* inst, int idx, float* val) { if(val)*val=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_TriggerCue(void* inst) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetTimelinePosition(void* inst, int pos) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetTimelinePosition(void* inst, int* pos) { if(pos)*pos=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetChannelGroup(void* inst, void** grp) { if(grp) *grp=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetReverbLevel(void* inst, int idx, float level) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetReverbLevel(void* inst, int idx, float* level) { if(level)*level=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetListenerMask(void* inst, unsigned int mask) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetListenerMask(void* inst, unsigned int* mask) { if(mask) *mask=0xFFFFFFFF; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetMinMaxDistance(void* inst, float* min, float* max) { if(min) *min=0; if(max) *max=100; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_SetCallback(void* inst, void* callback, int mask) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetCPUUsage(void* inst, unsigned int* exclusive, unsigned int* inclusive) { if(exclusive)*exclusive=0; if(inclusive)*inclusive=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_EventInstance_GetMemoryUsage(void* inst, void* usage) { return FMOD_OK; }
+
+          FMOD_RESULT FMOD5_Studio_Bank_Unload(void* bank) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_IsValid(void* bank, FMOD_BOOL* valid) { if(valid) *valid=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_LoadSampleData(void* bank) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_UnloadSampleData(void* bank) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetLoadingState(void* bank, int* state) { if(state) *state=2; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetSampleLoadingState(void* bank, int* state) { if(state) *state=2; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetEventCount(void* bank, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetEventList(void* bank, void** array, int cap, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetStringCount(void* bank, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetStringInfo(void* bank, int idx, void* id, char* path, int size, int* retrieved) { if(retrieved)*retrieved=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetBusCount(void* bank, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetBusList(void* bank, void** array, int cap, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetVCACount(void* bank, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetVCAList(void* bank, void** array, int cap, int* count) { if(count) *count=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetID(void* bank, void* id) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bank_GetPath(void* bank, char* path, int size, int* retrieved) { if(retrieved)*retrieved=0; return FMOD_OK; }
+
+          FMOD_RESULT FMOD5_Studio_Bus_SetVolume(void* bus, float vol) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_GetVolume(void* bus, float* vol, float* finalvol) { if(vol)*vol=1; if(finalvol)*finalvol=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_SetPaused(void* bus, FMOD_BOOL paused) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_GetPaused(void* bus, FMOD_BOOL* paused) { if(paused)*paused=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_SetMute(void* bus, FMOD_BOOL mute) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_GetMute(void* bus, FMOD_BOOL* mute) { if(mute)*mute=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_StopAllEvents(void* bus, int mode) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_IsValid(void* bus, FMOD_BOOL* valid) { if(valid)*valid=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_GetID(void* bus, void* id) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_GetPath(void* bus, char* path, int size, int* retrieved) { if(retrieved)*retrieved=0; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_LockChannelGroup(void* bus) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_UnlockChannelGroup(void* bus) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_Bus_GetChannelGroup(void* bus, void** grp) { if(grp) *grp=(void*)0x1; return FMOD_OK; }
+
+          FMOD_RESULT FMOD5_Studio_VCA_SetVolume(void* vca, float vol) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_VCA_GetVolume(void* vca, float* vol, float* finalvol) { if(vol)*vol=1; if(finalvol)*finalvol=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_VCA_IsValid(void* vca, FMOD_BOOL* valid) { if(valid)*valid=1; return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_VCA_GetID(void* vca, void* id) { return FMOD_OK; }
+          FMOD_RESULT FMOD5_Studio_VCA_GetPath(void* vca, char* path, int size, int* retrieved) { if(retrieved)*retrieved=0; return FMOD_OK; }
           STUBEOF
 
-          # Compile for ARM
+          # Compile
           $ARM_CC -shared -o /tmp/libfmod.so /tmp/fmod_stub.c -Wl,-soname,libfmod.so -nostdlib
           $ARM_CC -shared -o /tmp/libfmodstudio.so /tmp/fmodstudio_stub.c -Wl,-soname,libfmodstudio.so -nostdlib
 
-          echo "=== Built stubs ==="
-          file /tmp/libfmod.so
-          file /tmp/libfmodstudio.so
-          ls -la /tmp/libfmod.so /tmp/libfmodstudio.so
+          echo "=== Verifying FMOD5_ symbols ==="
+          arm-linux-gnueabihf-nm -D /tmp/libfmod.so | grep "FMOD5" | head -10
+          arm-linux-gnueabihf-nm -D /tmp/libfmodstudio.so | grep "FMOD5" | head -10
 
           # Install into project
           PLUGIN_DIR="ExportedProject/Assets/Plugins/Android/libs/armeabi-v7a"
@@ -145,7 +250,7 @@ jobs:
           cp /tmp/libfmod.so "$PLUGIN_DIR/"
           cp /tmp/libfmodstudio.so "$PLUGIN_DIR/"
 
-          # Create .meta files for Unity to pick them up as native plugins
+          # Create .meta files
           for LIB in libfmod.so libfmodstudio.so; do
             GUID=$(cat /proc/sys/kernel/random/uuid | tr -d '-' | head -c 32)
             cat > "$PLUGIN_DIR/${LIB}.meta" << METAEOF
@@ -185,37 +290,115 @@ jobs:
             assetBundleVariant:
           METAEOF
           done
+          echo "=== FMOD5 stubs installed ==="
 
-          echo "=== FMOD stubs installed ==="
-          find "$PLUGIN_DIR" -ls
-
-      - name: Fix PostProcessing references
+      - name: Patch PostProcessing DLL with Mono.Cecil
         run: |
           set -e
-          echo "=== Fixing PostProcessing Experimental.Rendering references ==="
-          # Fix source files that reference the old namespace
-          find ExportedProject/Assets -name "*.cs" | xargs grep -l "UnityEngine\.Experimental\.Rendering" 2>/dev/null | while read F; do
-            echo "  Fixing: $F"
-            sed -i 's/UnityEngine\.Experimental\.Rendering/UnityEngine.Rendering/g' "$F"
+          echo "=== Setting up .NET 8 Cecil patcher ==="
+          
+          # Install .NET SDK
+          curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0 --install-dir /usr/local/share/dotnet
+          export PATH="/usr/local/share/dotnet:$PATH"
+          export DOTNET_ROOT="/usr/local/share/dotnet"
+          
+          mkdir -p /tmp/patcher && cd /tmp/patcher
+          
+          cat > patcher.csproj << 'CSPROJEOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>Exe</OutputType>
+              <TargetFramework>net8.0</TargetFramework>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Mono.Cecil" Version="0.11.5" />
+            </ItemGroup>
+          </Project>
+          CSPROJEOF
+          
+          cat > Program.cs << 'PROGEOF'
+          using System;
+          using System.IO;
+          using System.Linq;
+          using Mono.Cecil;
+          
+          class Program {
+              static int Main(string[] args) {
+                  if (args.Length < 1) { Console.Error.WriteLine("Usage: patcher <dll>"); return 1; }
+                  string dllPath = args[0];
+                  Console.WriteLine($"Patching: {dllPath}");
+                  
+                  var resolver = new DefaultAssemblyResolver();
+                  resolver.AddSearchDirectory(Path.GetDirectoryName(dllPath));
+                  
+                  // Also resolve from Managed folder
+                  string managedDir = Path.Combine(Path.GetDirectoryName(dllPath), "..", "Managed");
+                  if (Directory.Exists(managedDir))
+                      resolver.AddSearchDirectory(managedDir);
+                  
+                  AssemblyDefinition asm;
+                  try {
+                      asm = AssemblyDefinition.ReadAssembly(dllPath, new ReaderParameters { 
+                          ReadWrite = true, 
+                          AssemblyResolver = resolver,
+                          ReadingMode = ReadingMode.Immediate 
+                      });
+                  } catch (Exception ex) {
+                      Console.WriteLine($"  Cannot read: {ex.Message}");
+                      return 1;
+                  }
+                  
+                  int patched = 0;
+                  foreach (var typeRef in asm.MainModule.GetTypeReferences()) {
+                      if (typeRef.Namespace == "UnityEngine.Experimental.Rendering") {
+                          Console.WriteLine($"  Fixing: {typeRef.FullName} -> UnityEngine.Rendering.{typeRef.Name}");
+                          typeRef.Namespace = "UnityEngine.Rendering";
+                          patched++;
+                      }
+                  }
+                  
+                  if (patched > 0) {
+                      asm.Write();
+                      Console.WriteLine($"  Patched {patched} type references!");
+                  } else {
+                      Console.WriteLine("  No Experimental.Rendering references found.");
+                  }
+                  asm.Dispose();
+                  return 0;
+              }
+          }
+          PROGEOF
+          
+          dotnet restore
+          dotnet build -c Release --no-restore
+          
+          cd $GITHUB_WORKSPACE
+          
+          # Find and patch all DLLs that might contain PostProcessing
+          echo "=== Finding PostProcessing DLLs ==="
+          find ExportedProject/Assets -name "*.dll" | while read DLL; do
+            # Quick check if DLL contains the problematic string
+            if strings "$DLL" 2>/dev/null | grep -q "Experimental.Rendering"; then
+              echo "  Patching: $DLL"
+              dotnet run --project /tmp/patcher/patcher.csproj --no-build -c Release -- "$DLL" || echo "  (patch failed for $DLL, continuing)"
+            fi
           done
-          # Also fix any DLL references via assembly definition constraints
-          echo "Done fixing PostProcessing references"
+          
+          echo "=== PostProcessing DLL patch complete ==="
 
-      - name: Fix StringTables / localization
+      - name: Fix StringTables loading path
         run: |
           set -e
           echo "=== Fixing StringTables ==="
           # Ensure StreamingAssets has the language files
           mkdir -p ExportedProject/Assets/StreamingAssets/StringTables
-          # Copy any english.json we find into StreamingAssets
           find ExportedProject/Assets -name "english.json" -not -path "*/StreamingAssets/*" | while read F; do
             echo "Copying $F to StreamingAssets/StringTables/"
             cp "$F" ExportedProject/Assets/StreamingAssets/StringTables/english.json
           done
-          # If not found in assets, check if it's in the tarball root
           if [ ! -f "ExportedProject/Assets/StreamingAssets/StringTables/english.json" ]; then
             find ExportedProject -name "english.json" | while read F; do
-              echo "Found at: $F - copying to StreamingAssets"
+              echo "Found at: $F"
               cp "$F" ExportedProject/Assets/StreamingAssets/StringTables/english.json
               break
             done
@@ -228,9 +411,6 @@ jobs:
       - name: Build APK with pre-activated license
         run: |
           set -e
-          echo "=== Injecting license file ==="
-          ls -la UnityEntitlementLicense.xml
-
           docker run --rm \
             -v "$PWD/ExportedProject":/project \
             -v "$PWD/UnityEntitlementLicense.xml":/root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml:ro \
@@ -242,8 +422,8 @@ jobs:
 
               echo "=== Native plugins ==="
               find /project/Assets -name "*.so" -ls
-              echo "=== FMOD bank files ==="
-              find /project/Assets -name "*.bank" | head -10
+              echo "=== Verify FMOD5 symbols ==="
+              nm -D /project/Assets/Plugins/Android/libs/armeabi-v7a/libfmod.so 2>/dev/null | grep FMOD5 | head -5 || echo "(nm not available)"
 
               echo "=== Running Unity build ==="
               /opt/unity/Editor/Unity \
@@ -286,10 +466,10 @@ jobs:
           Target SDK: 30 (Android 11)
           
           Fixes in this build:
-          - Landscape orientation (was stuck in portrait)
-          - FMOD native stub libs (prevents DllNotFoundException crash)
-          - PostProcessing namespace fix (Experimental.Rendering -> Rendering)
-          - StringTables in StreamingAssets for localization
-          - Android StreamingAssets path helper for jar:// compatibility" \
+          - Landscape orientation forced
+          - FMOD5_ stub libs (correct ABI - prevents EntryPointNotFoundException)
+          - PostProcessing DLL patched with Mono.Cecil (Experimental.Rendering -> Rendering)
+          - StringTables in StreamingAssets
+          - Android StreamingAssets jar:// path helper" \
             --latest
           echo "Release created: $TAG"

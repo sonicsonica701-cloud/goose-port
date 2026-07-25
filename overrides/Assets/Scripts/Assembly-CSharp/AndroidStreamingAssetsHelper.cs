@@ -1,38 +1,18 @@
 using UnityEngine;
 using System.IO;
+using System.Threading;
 
 /// <summary>
-/// Helper that copies StreamingAssets files to persistentDataPath on Android at startup.
-/// On Android, Application.streamingAssetsPath points to a jar:// URL which can't be read with File.IO.
-/// This copies essential files to Application.persistentDataPath where they're accessible.
+/// Synchronously copies StreamingAssets to persistentDataPath on Android BEFORE scenes load.
+/// Uses RuntimeInitializeOnLoadMethod with BeforeSceneLoad to ensure files are ready
+/// before LocalizationManager tries to read them.
 /// </summary>
-public class AndroidStreamingAssetsHelper : MonoBehaviour
+public static class AndroidStreamingAssetsHelper
 {
-    private static bool s_initialized = false;
-    
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    static void Initialize()
-    {
-        if (s_initialized) return;
-        s_initialized = true;
-        
-#if UNITY_ANDROID && !UNITY_EDITOR
-        // Create a temporary GameObject to run coroutines
-        var go = new GameObject("AndroidStreamingAssetsHelper");
-        go.AddComponent<AndroidStreamingAssetsHelper>();
-        DontDestroyOnLoad(go);
-#endif
-    }
-    
-    void Awake()
+    static void CopyStreamingAssets()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
-        StartCoroutine(CopyStreamingAssets());
-#endif
-    }
-    
-    System.Collections.IEnumerator CopyStreamingAssets()
-    {
         string[] filesToCopy = new string[]
         {
             "StringTables/english.json",
@@ -42,9 +22,6 @@ public class AndroidStreamingAssetsHelper : MonoBehaviour
             "StringTables/italian.json",
             "StringTables/japanese.json",
             "StringTables/korean.json",
-            "StringTables/chinese_simplified.json",
-            "StringTables/chinese_traditional.json",
-            "StringTables/portuguese.json",
             "StringTables/russian.json",
         };
         
@@ -52,33 +29,44 @@ public class AndroidStreamingAssetsHelper : MonoBehaviour
         
         foreach (string relPath in filesToCopy)
         {
-            string srcPath = Application.streamingAssetsPath + "/" + relPath;
             string destPath = destBase + "/" + relPath;
+            if (File.Exists(destPath))
+                continue;
+                
             string destDir = Path.GetDirectoryName(destPath);
-            
             if (!Directory.Exists(destDir))
                 Directory.CreateDirectory(destDir);
             
-            if (File.Exists(destPath))
-                continue; // Already copied
+            string srcPath = Application.streamingAssetsPath + "/" + relPath;
             
-            // On Android, streamingAssetsPath is a jar URL, use UnityWebRequest
-            using (var www = UnityEngine.Networking.UnityWebRequest.Get(srcPath))
+            // Use Java/Android API to read from APK synchronously
+            try
             {
-                yield return www.SendWebRequest();
-                
-                if (www.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+                using (var www = new UnityEngine.Networking.UnityWebRequest(srcPath))
                 {
-                    File.WriteAllBytes(destPath, www.downloadHandler.data);
-                    Debug.Log($"[AndroidSA] Copied: {relPath}");
-                }
-                else
-                {
-                    Debug.LogWarning($"[AndroidSA] Failed to copy {relPath}: {www.error}");
+                    www.downloadHandler = new UnityEngine.Networking.DownloadHandlerBuffer();
+                    var op = www.SendWebRequest();
+                    // Block until complete (we're in BeforeSceneLoad so this is OK)
+                    while (!op.isDone)
+                        Thread.Sleep(1);
+                    
+                    if (www.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+                    {
+                        File.WriteAllBytes(destPath, www.downloadHandler.data);
+                        Debug.Log($"[AndroidSA] Copied: {relPath}");
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[AndroidSA] Failed: {relPath} - {www.error}");
+                    }
                 }
             }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[AndroidSA] Exception copying {relPath}: {ex.Message}");
+            }
         }
-        
-        Debug.Log("[AndroidSA] StreamingAssets copy complete");
+        Debug.Log("[AndroidSA] StreamingAssets copy complete (sync)");
+#endif
     }
 }

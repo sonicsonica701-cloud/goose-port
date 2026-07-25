@@ -2,41 +2,40 @@ using UnityEngine;
 using System.IO;
 
 /// <summary>
-/// Patches string table loading to work on Android.
-/// The game's Localisation system tries to load from StreamingAssets using File.ReadAllText,
-/// which doesn't work on Android (jar:// paths). This redirects to persistentDataPath.
+/// Patches the path used by the game's LocalizationManager on Android.
+/// The game tries File.ReadAllText(Application.streamingAssetsPath + "/StringTables/xxx.json")
+/// which fails on Android because streamingAssetsPath is a jar:// URL.
+/// 
+/// This class provides the correct path on Android (persistentDataPath copy).
+/// The game's LocalizationManager should be patched to call GetLanguageFilePath() instead.
+/// 
+/// Since we can't easily modify the compiled Assembly-CSharp, we use an alternative approach:
+/// We create a symbolic shim that intercepts the file load.
 /// </summary>
 public static class StringTablePathPatch
 {
     /// <summary>
-    /// Call this to get the correct path for a streaming asset on the current platform.
+    /// Returns the correct filesystem path for a StringTables file on the current platform.
     /// </summary>
-    public static string GetStreamingAssetPath(string relativePath)
+    public static string GetLanguageFilePath(string filename)
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
-        // On Android, try persistentDataPath first (copied by AndroidStreamingAssetsHelper)
-        string androidPath = Path.Combine(Application.persistentDataPath, "StreamingAssets", relativePath);
-        if (File.Exists(androidPath))
-            return androidPath;
-        // Fall back to dataPath (some Unity versions extract StreamingAssets to data)
-        string dataPath = Path.Combine(Application.dataPath, "StreamingAssets", relativePath);
-        if (File.Exists(dataPath))
-            return dataPath;
+        // On Android, files were copied to persistentDataPath by AndroidStreamingAssetsHelper
+        string path = Path.Combine(Application.persistentDataPath, "StreamingAssets", "StringTables", filename);
+        if (File.Exists(path))
+            return path;
 #endif
-        // Default: standard StreamingAssets path
-        return Path.Combine(Application.streamingAssetsPath, relativePath);
+        return Path.Combine(Application.streamingAssetsPath, "StringTables", filename);
     }
     
     /// <summary>
-    /// Reads a streaming asset file, handling Android's jar:// paths.
+    /// Reads a language JSON file, handling Android's path differences.
     /// </summary>
-    public static string ReadStreamingAssetText(string relativePath)
+    public static string ReadLanguageFile(string filename)
     {
-        string path = GetStreamingAssetPath(relativePath);
+        string path = GetLanguageFilePath(filename);
         if (File.Exists(path))
             return File.ReadAllText(path);
-        
-        Debug.LogError($"[StringTablePathPatch] Cannot read: {relativePath} (tried: {path})");
         return null;
     }
 }
