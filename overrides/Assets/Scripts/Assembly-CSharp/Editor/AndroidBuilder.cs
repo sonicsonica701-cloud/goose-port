@@ -39,6 +39,9 @@ public class AndroidBuilder
         PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel22;
         // Use SDK 30 which is available in the Docker image
         PlayerSettings.Android.targetSdkVersion = (AndroidSdkVersions)30;
+        // Must be positive integer for Gradle
+        PlayerSettings.Android.bundleVersionCode = 1;
+        PlayerSettings.bundleVersion = "1.1.4";
         PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.mobileport.untitledgoosegame");
 
         var opts = new BuildPlayerOptions
