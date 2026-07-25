@@ -17,11 +17,11 @@ jobs:
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android /opt/hostedtoolcache
           df -h
 
-      - name: Install zstd
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd
+      - name: Install tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd gcc-arm-linux-gnueabihf
 
       - name: Download project tarball from release
         env:
@@ -56,34 +56,99 @@ jobs:
         run: |
           set -e
           echo "=== Fixing deprecated Graphics.DrawProceduralIndirect ==="
-          DOF_FILE="ExportedProject/Assets/Plugins/Assembly-CSharp-firstpass/UnityStandardAssets/ImageEffects/DepthOfField.cs"
-          if [ -f "$DOF_FILE" ]; then
-            sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' "$DOF_FILE"
-            echo "Fixed DepthOfField.cs"
-          else
-            find ExportedProject -name "DepthOfField.cs" -exec sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' {} \; -print
-          fi
+          find ExportedProject -name "DepthOfField.cs" -exec sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' {} \; -print
 
-      - name: Fix FMOD native plugin meta files for Android
+      - name: Build FMOD stub native libraries
         run: |
           set -e
-          echo "=== Fixing FMOD .so plugin meta files for Android ==="
-          # Find all FMOD .so files and fix their .meta to enable Android platform
-          find ExportedProject/Assets -name "libfmod*.so" -o -name "libfmodstudio*.so" | while read SO_FILE; do
-            META_FILE="${SO_FILE}.meta"
-            echo "Found: $SO_FILE"
-            if [ -f "$META_FILE" ]; then
-              echo "  Fixing meta: $META_FILE"
-              # Enable Android platform in the meta file
-              # Replace "Android: {enabled: 0" with "Android: {enabled: 1"
-              sed -i 's/Android:\s*$/Android:/' "$META_FILE"
-              sed -i 's/enabled: 0/enabled: 1/g' "$META_FILE"
-              # Make sure isPreloaded is set
-              sed -i 's/isPreloaded: 0/isPreloaded: 1/' "$META_FILE"
-            else
-              echo "  No meta file, creating one..."
-              GUID=$(cat /proc/sys/kernel/random/uuid | tr -d '-' | head -c 32)
-              cat > "$META_FILE" << METAEOF
+          echo "=== Building FMOD stub .so for armeabi-v7a ==="
+          ARM_CC="arm-linux-gnueabihf-gcc"
+
+          # Stub C source for libfmod.so
+          cat > /tmp/fmod_stub.c << 'STUBEOF'
+          typedef int FMOD_RESULT;
+          #define FMOD_OK 0
+          FMOD_RESULT FMOD_System_Create(void** s) { if(s) *s=(void*)0x1; return FMOD_OK; }
+          FMOD_RESULT FMOD_System_Init(void* s, int m, int f, void* e) { return FMOD_OK; }
+          FMOD_RESULT FMOD_System_Close(void* s) { return FMOD_OK; }
+          FMOD_RESULT FMOD_System_Release(void* s) { return FMOD_OK; }
+          FMOD_RESULT FMOD_System_Update(void* s) { return FMOD_OK; }
+          FMOD_RESULT FMOD_System_CreateSound(void* s,const char* n,int m,void* i,void** o){if(o)*o=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_System_PlaySound(void* s,void* snd,void* g,int p,void** c){if(c)*c=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_System_GetVersion(void* s,unsigned int* v){if(v)*v=0x00020109;return FMOD_OK;}
+          FMOD_RESULT FMOD_System_SetOutput(void* s,int o){return FMOD_OK;}
+          FMOD_RESULT FMOD_System_SetSoftwareFormat(void* s,int r,int m,int n){return FMOD_OK;}
+          FMOD_RESULT FMOD_System_GetMasterChannelGroup(void* s,void** g){if(g)*g=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Sound_Release(void* s){return FMOD_OK;}
+          FMOD_RESULT FMOD_Channel_Stop(void* c){return FMOD_OK;}
+          FMOD_RESULT FMOD_Channel_SetVolume(void* c,float v){return FMOD_OK;}
+          FMOD_RESULT FMOD_Channel_IsPlaying(void* c,int* p){if(p)*p=0;return FMOD_OK;}
+          FMOD_RESULT FMOD_ChannelGroup_SetVolume(void* g,float v){return FMOD_OK;}
+          FMOD_RESULT FMOD_Memory_Initialize(void* p,int l,void* a,void* r,void* f,int t){return FMOD_OK;}
+          FMOD_RESULT FMOD_Debug_Initialize(int f,int m,void* c,const char* fn){return FMOD_OK;}
+          STUBEOF
+
+          # Stub C source for libfmodstudio.so
+          cat > /tmp/fmodstudio_stub.c << 'STUBEOF'
+          typedef int FMOD_RESULT;
+          #define FMOD_OK 0
+          FMOD_RESULT FMOD_Studio_System_Create(void** s,unsigned int h){if(s)*s=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_Initialize(void* s,int m,int sf,int f,void* e){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_Release(void* s){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_Update(void* s){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_GetCoreSystem(void* s,void** c){if(c)*c=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_LoadBankFile(void* s,const char* f,int fl,void** b){if(b)*b=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_LoadBankMemory(void* s,const char* b,int l,int m,int f,void** bk){if(bk)*bk=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_GetEvent(void* s,const char* p,void** e){if(e)*e=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_GetBus(void* s,const char* p,void** b){if(b)*b=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_GetVCA(void* s,const char* p,void** v){if(v)*v=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_LookupID(void* s,const char* p,void* id){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_FlushCommands(void* s){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_FlushSampleLoading(void* s){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_System_SetListenerAttributes(void* s,int i,void* a,void* v){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventDescription_CreateInstance(void* d,void** i){if(i)*i=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventDescription_GetInstanceCount(void* d,int* c){if(c)*c=0;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventDescription_IsOneshot(void* d,int* o){if(o)*o=1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventDescription_Is3D(void* d,int* i){if(i)*i=0;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventInstance_Start(void* i){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventInstance_Stop(void* i,int m){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventInstance_Release(void* i){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventInstance_SetParameterByName(void* i,const char* n,float v,int s){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventInstance_GetParameterByName(void* i,const char* n,float* v,float* f){if(v)*v=0;if(f)*f=0;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventInstance_Set3DAttributes(void* i,void* a){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventInstance_GetPlaybackState(void* i,int* s){if(s)*s=2;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventInstance_SetVolume(void* i,float v){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_EventInstance_GetDescription(void* i,void** d){if(d)*d=(void*)0x1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_Bank_Unload(void* b){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_Bank_GetEventCount(void* b,int* c){if(c)*c=0;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_Bank_LoadSampleData(void* b){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_Bank_GetLoadingState(void* b,int* s){if(s)*s=2;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_Bus_SetVolume(void* b,float v){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_Bus_GetVolume(void* b,float* v,float* f){if(v)*v=1;if(f)*f=1;return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_Bus_SetPaused(void* b,int p){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_VCA_SetVolume(void* v,float vol){return FMOD_OK;}
+          FMOD_RESULT FMOD_Studio_VCA_GetVolume(void* v,float* vol,float* f){if(vol)*vol=1;if(f)*f=1;return FMOD_OK;}
+          STUBEOF
+
+          # Compile for ARM
+          $ARM_CC -shared -o /tmp/libfmod.so /tmp/fmod_stub.c -Wl,-soname,libfmod.so -nostdlib
+          $ARM_CC -shared -o /tmp/libfmodstudio.so /tmp/fmodstudio_stub.c -Wl,-soname,libfmodstudio.so -nostdlib
+
+          echo "=== Built stubs ==="
+          file /tmp/libfmod.so
+          file /tmp/libfmodstudio.so
+          ls -la /tmp/libfmod.so /tmp/libfmodstudio.so
+
+          # Install into project
+          PLUGIN_DIR="ExportedProject/Assets/Plugins/Android/libs/armeabi-v7a"
+          mkdir -p "$PLUGIN_DIR"
+          cp /tmp/libfmod.so "$PLUGIN_DIR/"
+          cp /tmp/libfmodstudio.so "$PLUGIN_DIR/"
+
+          # Create .meta files for Unity to pick them up as native plugins
+          for LIB in libfmod.so libfmodstudio.so; do
+            GUID=$(cat /proc/sys/kernel/random/uuid | tr -d '-' | head -c 32)
+            cat > "$PLUGIN_DIR/${LIB}.meta" << METAEOF
           fileFormatVersion: 2
           guid: ${GUID}
           PluginImporter:
@@ -119,33 +184,43 @@ jobs:
             assetBundleName:
             assetBundleVariant:
           METAEOF
-            fi
           done
-          # List what we found
-          echo "=== All .so files in project ==="
-          find ExportedProject/Assets -name "*.so" | head -20
+
+          echo "=== FMOD stubs installed ==="
+          find "$PLUGIN_DIR" -ls
+
+      - name: Fix PostProcessing references
+        run: |
+          set -e
+          echo "=== Fixing PostProcessing Experimental.Rendering references ==="
+          # Fix source files that reference the old namespace
+          find ExportedProject/Assets -name "*.cs" | xargs grep -l "UnityEngine\.Experimental\.Rendering" 2>/dev/null | while read F; do
+            echo "  Fixing: $F"
+            sed -i 's/UnityEngine\.Experimental\.Rendering/UnityEngine.Rendering/g' "$F"
+          done
+          # Also fix any DLL references via assembly definition constraints
+          echo "Done fixing PostProcessing references"
 
       - name: Fix StringTables / localization
         run: |
           set -e
           echo "=== Fixing StringTables ==="
-          # The game looks for StringTables/english.json in StreamingAssets
-          # Find it and make sure it's in the right place
-          FOUND=$(find ExportedProject/Assets -path "*StringTable*" -o -path "*stringtable*" -o -name "english.json" | head -10)
-          echo "Found StringTable files: $FOUND"
-          # Ensure StreamingAssets directory exists and has the language files
+          # Ensure StreamingAssets has the language files
           mkdir -p ExportedProject/Assets/StreamingAssets/StringTables
-          # Copy any english.json we find
+          # Copy any english.json we find into StreamingAssets
           find ExportedProject/Assets -name "english.json" -not -path "*/StreamingAssets/*" | while read F; do
             echo "Copying $F to StreamingAssets/StringTables/"
             cp "$F" ExportedProject/Assets/StreamingAssets/StringTables/english.json
           done
-          # If still not found, check Resources
+          # If not found in assets, check if it's in the tarball root
           if [ ! -f "ExportedProject/Assets/StreamingAssets/StringTables/english.json" ]; then
-            echo "english.json not found in Assets, checking all json files..."
-            find ExportedProject -name "*english*" -o -name "*English*" | head -10
+            find ExportedProject -name "english.json" | while read F; do
+              echo "Found at: $F - copying to StreamingAssets"
+              cp "$F" ExportedProject/Assets/StreamingAssets/StringTables/english.json
+              break
+            done
           fi
-          ls -la ExportedProject/Assets/StreamingAssets/StringTables/ 2>/dev/null || echo "No StringTables dir created"
+          ls -la ExportedProject/Assets/StreamingAssets/StringTables/ 2>/dev/null || echo "Warning: No StringTables found"
 
       - name: Pull Unity Android editor image
         run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
@@ -155,7 +230,6 @@ jobs:
           set -e
           echo "=== Injecting license file ==="
           ls -la UnityEntitlementLicense.xml
-          grep -o "com.unity.editor[^\"]*" UnityEntitlementLicense.xml || true
 
           docker run --rm \
             -v "$PWD/ExportedProject":/project \
@@ -163,11 +237,12 @@ jobs:
             -w /project \
             unityci/editor:ubuntu-2020.3.48f1-android-3 \
             bash -c '
-              echo "=== License verification ==="
+              echo "=== License check ==="
               grep -o "com.unity.editor[^\"]*" /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml || true
 
-              echo "=== Native plugins check ==="
-              find /project/Assets -name "*.so" | head -20
+              echo "=== Native plugins ==="
+              find /project/Assets -name "*.so" -ls
+              echo "=== FMOD bank files ==="
               find /project/Assets -name "*.bank" | head -10
 
               echo "=== Running Unity build ==="
@@ -177,7 +252,7 @@ jobs:
                 -executeMethod AndroidBuilder.BuildAndroid \
                 -logFile /dev/stdout \
                 -buildTarget Android
-              echo "=== Build artifacts ==="
+              echo "=== Build output ==="
               ls -la /project/Build/ || true
               chown -R $(stat -c "%u:%g" /project) /project/Build || true
             '
@@ -203,13 +278,18 @@ jobs:
           TAG="v1.1.4-android-$(date +%Y%m%d%H%M%S)"
           gh release create "$TAG" "$APK_FILE" \
             --title "Untitled Goose Game - Android APK (ARMv7 32-bit)" \
-            --notes "32-bit ARMv7 Android APK built from Unity 2020.3.48f1
+            --notes "32-bit ARMv7 Android APK - Unity 2020.3.48f1
 
           APK size: $APK_SIZE
           Architecture: ARMv7 (32-bit)
           Min SDK: 22 (Android 5.1)
           Target SDK: 30 (Android 11)
           
-          Fixes: FMOD audio, StringTables localization" \
+          Fixes in this build:
+          - Landscape orientation (was stuck in portrait)
+          - FMOD native stub libs (prevents DllNotFoundException crash)
+          - PostProcessing namespace fix (Experimental.Rendering -> Rendering)
+          - StringTables in StreamingAssets for localization
+          - Android StreamingAssets path helper for jar:// compatibility" \
             --latest
           echo "Release created: $TAG"
