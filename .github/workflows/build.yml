@@ -292,11 +292,15 @@ jobs:
           done
           echo "=== FMOD5 stubs installed ==="
 
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
       - name: Patch PostProcessing DLL with Mono.Cecil
         run: |
           set -e
           echo "=== Setting up .NET 8 Cecil patcher ==="
-          
           
           mkdir -p /tmp/patcher && cd /tmp/patcher
           
