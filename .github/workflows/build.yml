@@ -3,6 +3,9 @@ name: Build Untitled Goose Game Android APK (ARMv7)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build APK
@@ -57,9 +60,7 @@ jobs:
           if [ -f "$DOF_FILE" ]; then
             sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' "$DOF_FILE"
             echo "Fixed DepthOfField.cs"
-            grep -n "DrawProcedural" "$DOF_FILE" || true
           else
-            echo "DepthOfField.cs not found at expected path, searching..."
             find ExportedProject -name "DepthOfField.cs" -exec sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' {} \; -print
           fi
 
@@ -80,7 +81,6 @@ jobs:
             unityci/editor:ubuntu-2020.3.48f1-android-3 \
             bash -c '
               echo "=== License verification ==="
-              ls -la /root/.config/unity3d/Unity/licenses/
               grep -o "com.unity.editor[^\"]*" /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml || true
 
               echo "=== Running Unity build ==="
@@ -102,9 +102,25 @@ jobs:
           ls -la ExportedProject/Build/ || true
           find ExportedProject/Build -name '*.apk' -ls || true
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: UntitledGooseGame-APK
-          path: ExportedProject/Build/*.apk
-          if-no-files-found: error
+      - name: Create Release and Upload APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK_FILE=$(find ExportedProject/Build -name '*.apk' | head -1)
+          if [ -z "$APK_FILE" ]; then
+            echo "No APK found!"
+            exit 1
+          fi
+          APK_SIZE=$(du -h "$APK_FILE" | cut -f1)
+          echo "APK: $APK_FILE ($APK_SIZE)"
+          TAG="v1.1.4-android-$(date +%Y%m%d%H%M%S)"
+          gh release create "$TAG" "$APK_FILE" \
+            --title "Untitled Goose Game - Android APK (ARMv7 32-bit)" \
+            --notes "32-bit ARMv7 Android APK built from Unity 2020.3.48f1
+
+          APK size: $APK_SIZE
+          Architecture: ARMv7 (32-bit)
+          Min SDK: 22 (Android 5.1)
+          Target SDK: 30 (Android 11)" \
+            --latest
+          echo "Release created: $TAG"
