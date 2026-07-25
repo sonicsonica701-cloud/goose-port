@@ -37,7 +37,8 @@ public class AndroidBuilder
         PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARMv7;
         PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.Mono2x);
         PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel22;
-        PlayerSettings.Android.targetSdkVersion = (AndroidSdkVersions)28;
+        // Use SDK 30 which is available in the Docker image
+        PlayerSettings.Android.targetSdkVersion = (AndroidSdkVersions)30;
         PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.mobileport.untitledgoosegame");
 
         var opts = new BuildPlayerOptions
