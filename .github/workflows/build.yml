@@ -49,7 +49,7 @@ jobs:
           if [ -d overrides ]; then
             echo "Applying overrides:"
             (cd overrides && find . -type f) | sed 's|^|  |'
-            cp -rv overrides/* ExportedProject/ | tail -20
+            cp -rv overrides/* ExportedProject/ | tail -30
           fi
 
       - name: Fix deprecated API calls
@@ -63,6 +63,89 @@ jobs:
           else
             find ExportedProject -name "DepthOfField.cs" -exec sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' {} \; -print
           fi
+
+      - name: Fix FMOD native plugin meta files for Android
+        run: |
+          set -e
+          echo "=== Fixing FMOD .so plugin meta files for Android ==="
+          # Find all FMOD .so files and fix their .meta to enable Android platform
+          find ExportedProject/Assets -name "libfmod*.so" -o -name "libfmodstudio*.so" | while read SO_FILE; do
+            META_FILE="${SO_FILE}.meta"
+            echo "Found: $SO_FILE"
+            if [ -f "$META_FILE" ]; then
+              echo "  Fixing meta: $META_FILE"
+              # Enable Android platform in the meta file
+              # Replace "Android: {enabled: 0" with "Android: {enabled: 1"
+              sed -i 's/Android:\s*$/Android:/' "$META_FILE"
+              sed -i 's/enabled: 0/enabled: 1/g' "$META_FILE"
+              # Make sure isPreloaded is set
+              sed -i 's/isPreloaded: 0/isPreloaded: 1/' "$META_FILE"
+            else
+              echo "  No meta file, creating one..."
+              GUID=$(cat /proc/sys/kernel/random/uuid | tr -d '-' | head -c 32)
+              cat > "$META_FILE" << METAEOF
+          fileFormatVersion: 2
+          guid: ${GUID}
+          PluginImporter:
+            externalObjects: {}
+            serializedVersion: 2
+            iconMap: {}
+            executionOrder: {}
+            defineConstraints: []
+            isPreloaded: 1
+            isOverridable: 0
+            isExplicitlyReferenced: 0
+            validateReferences: 1
+            platformData:
+            - first:
+                Android: Android
+              second:
+                enabled: 1
+                settings:
+                  CPU: ARMv7
+            - first:
+                Any:
+              second:
+                enabled: 0
+                settings: {}
+            - first:
+                Editor: Editor
+              second:
+                enabled: 0
+                settings:
+                  DefaultValueInitialized: true
+            userData:
+            userDataPath:
+            assetBundleName:
+            assetBundleVariant:
+          METAEOF
+            fi
+          done
+          # List what we found
+          echo "=== All .so files in project ==="
+          find ExportedProject/Assets -name "*.so" | head -20
+
+      - name: Fix StringTables / localization
+        run: |
+          set -e
+          echo "=== Fixing StringTables ==="
+          # The game looks for StringTables/english.json in StreamingAssets
+          # Find it and make sure it's in the right place
+          FOUND=$(find ExportedProject/Assets -path "*StringTable*" -o -path "*stringtable*" -o -name "english.json" | head -10)
+          echo "Found StringTable files: $FOUND"
+          # Ensure StreamingAssets directory exists and has the language files
+          mkdir -p ExportedProject/Assets/StreamingAssets/StringTables
+          # Copy any english.json we find
+          find ExportedProject/Assets -name "english.json" -not -path "*/StreamingAssets/*" | while read F; do
+            echo "Copying $F to StreamingAssets/StringTables/"
+            cp "$F" ExportedProject/Assets/StreamingAssets/StringTables/english.json
+          done
+          # If still not found, check Resources
+          if [ ! -f "ExportedProject/Assets/StreamingAssets/StringTables/english.json" ]; then
+            echo "english.json not found in Assets, checking all json files..."
+            find ExportedProject -name "*english*" -o -name "*English*" | head -10
+          fi
+          ls -la ExportedProject/Assets/StreamingAssets/StringTables/ 2>/dev/null || echo "No StringTables dir created"
 
       - name: Pull Unity Android editor image
         run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
@@ -82,6 +165,10 @@ jobs:
             bash -c '
               echo "=== License verification ==="
               grep -o "com.unity.editor[^\"]*" /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml || true
+
+              echo "=== Native plugins check ==="
+              find /project/Assets -name "*.so" | head -20
+              find /project/Assets -name "*.bank" | head -10
 
               echo "=== Running Unity build ==="
               /opt/unity/Editor/Unity \
@@ -121,6 +208,8 @@ jobs:
           APK size: $APK_SIZE
           Architecture: ARMv7 (32-bit)
           Min SDK: 22 (Android 5.1)
-          Target SDK: 30 (Android 11)" \
+          Target SDK: 30 (Android 11)
+          
+          Fixes: FMOD audio, StringTables localization" \
             --latest
           echo "Release created: $TAG"
