@@ -292,87 +292,6 @@ jobs:
           done
           echo "=== FMOD5 stubs installed ==="
 
-      - name: Patch PostProcessing DLL (binary)
-        run: |
-          set -e
-          echo "=== Binary-patching PostProcessing DLLs ==="
-          # The DLL contains the UTF-8 string "UnityEngine.Experimental.Rendering" in its metadata.
-          # We replace it with "UnityEngine.Rendering" padded with nulls to keep the same byte length.
-          # "UnityEngine.Experimental.Rendering" = 35 bytes
-          # "UnityEngine.Rendering"              = 21 bytes + 14 null bytes padding
-          
-          # Create a Python script for reliable binary patching
-          cat > /tmp/patch_dll.py << 'PYEOF2'
-          import sys, os
-          
-          old = b"UnityEngine.Experimental.Rendering"
-          # In .NET metadata, strings are length-prefixed. We need to handle this carefully.
-          # Actually in the #Strings heap, they're null-terminated. In TypeRef metadata rows,
-          # the namespace is an index into the #Strings heap.
-          # Safest approach: replace the string in-place keeping exact same length with null padding.
-          new = b"UnityEngine.Rendering\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-          # But wait - that changes the null terminator position which would break the heap.
-          # Better approach: just replace "Experimental." with spaces/same-length neutral chars
-          # "Experimental." = 13 chars -> replace with nothing but shift the rest? No...
-          #
-          # Actually the cleanest binary patch for .NET metadata:
-          # Find the exact bytes of the old namespace string in the #Strings heap
-          # and overwrite with the new namespace + null terminator at the right spot.
-          #
-          # In practice: find "Experimental.Rendering" and replace with "Rendering\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-          # This works because the #Strings heap entry for the namespace starts at "Experimental.Rendering"
-          # and the TypeRef row points to the start of this string.
-          # If we overwrite "Experimental.Rendering" with "Rendering\x00..." the string terminates
-          # at the null and reads as just "Rendering".
-          #
-          # But we need to be more precise. Let's look for the pattern in context.
-          # The namespace "UnityEngine.Experimental.Rendering" is stored as:
-          # In #Strings heap: "UnityEngine.Experimental.Rendering\x00"
-          # The TypeRef points to the start -> reads "UnityEngine.Experimental.Rendering"
-          #
-          # We want it to read "UnityEngine.Rendering"
-          # So we replace "UnityEngine.Experimental.Rendering\x00" 
-          # with        "UnityEngine.Rendering\x00" + padding (13 bytes of something after the null)
-          #
-          # The padding after null doesn't matter since the string terminates at null.
-          
-          old_bytes = b"UnityEngine.Experimental.Rendering\x00"  # 36 bytes total
-          new_bytes = b"UnityEngine.Rendering\x00" + b"\x00" * 14  # 22 + 14 = 36 bytes (same length!)
-          
-          for dll_path in sys.argv[1:]:
-              with open(dll_path, 'rb') as f:
-                  data = f.read()
-              
-              count = data.count(old_bytes)
-              if count > 0:
-                  data = data.replace(old_bytes, new_bytes)
-                  with open(dll_path, 'wb') as f:
-                      f.write(data)
-                  print(f"  Patched {dll_path}: {count} occurrence(s)")
-              else:
-                  # Try without null terminator (in case it's followed by something else)
-                  old2 = b"Experimental.Rendering"
-                  new2 = b"Rendering\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-                  count2 = data.count(old2)
-                  if count2 > 0:
-                      data = data.replace(old2, new2)
-                      with open(dll_path, 'wb') as f:
-                          f.write(data)
-                      print(f"  Patched {dll_path} (method 2): {count2} occurrence(s)")
-                  else:
-                      print(f"  No match in {dll_path}")
-          PYEOF2
-          
-          # Find DLLs with the problematic string
-          find ExportedProject/Assets -name "*.dll" | while read DLL; do
-            if strings "$DLL" 2>/dev/null | grep -q "Experimental.Rendering"; then
-              echo "  Found target: $DLL"
-              python3 /tmp/patch_dll.py "$DLL"
-            fi
-          done
-          
-          echo "=== Binary patch complete ==="
-
       - name: Fix StringTables loading path
         run: |
           set -e
@@ -401,6 +320,7 @@ jobs:
           docker run --rm \
             -v "$PWD/ExportedProject":/project \
             -v "$PWD/UnityEntitlementLicense.xml":/root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml:ro \
+            -v "$PWD/ci-scripts/PatchDLL.cs":/tmp/PatchDLL.cs:ro \
             -w /project \
             unityci/editor:ubuntu-2020.3.48f1-android-3 \
             bash -c '
@@ -411,6 +331,23 @@ jobs:
               find /project/Assets -name "*.so" -ls
               echo "=== Verify FMOD5 symbols ==="
               nm -D /project/Assets/Plugins/Android/armeabi-v7a/libfmod.so 2>/dev/null | grep FMOD5 | head -5 || echo "(nm not available)"
+
+              echo "=== Patching PostProcessing DLLs ==="
+              MANAGED_DIR="/opt/unity/Editor/Data/Managed"
+              CECIL_DLL=$(find /opt/unity -name "Mono.Cecil.dll" 2>/dev/null | head -1)
+              if [ -n "$CECIL_DLL" ] && [ -f /tmp/PatchDLL.cs ]; then
+                mcs -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs failed"
+                if [ -f /tmp/PatchDLL.exe ]; then
+                  for DLL in /project/Assets/Plugins/Unity.Postprocessing.Runtime.dll /project/Assets/Plugins/Unity.TextMeshPro.dll; do
+                    if [ -f "$DLL" ]; then
+                      echo "  Patching: $DLL"
+                      mono /tmp/PatchDLL.exe "$DLL" "$MANAGED_DIR" || echo "  (failed)"
+                    fi
+                  done
+                fi
+              else
+                echo "Cecil not found or PatchDLL.cs missing"
+              fi
 
               echo "=== Running Unity build ==="
               /opt/unity/Editor/Unity \
