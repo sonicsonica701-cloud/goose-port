@@ -4,7 +4,8 @@ using System.IO;
 
 /// <summary>
 /// Automatically fixes native plugin import settings before build.
-/// Ensures FMOD .so files are included for Android ARMv7.
+/// Forces Unity to recognize .so files as native Android plugins.
+/// Runs at InitializeOnLoad (earliest editor script hook).
 /// </summary>
 [InitializeOnLoad]
 public class FixPluginImportSettings
@@ -17,67 +18,67 @@ public class FixPluginImportSettings
     [MenuItem("Build/Fix Plugin Import Settings")]
     public static void FixAll()
     {
-        // Find all .so files and enable them for Android
-        string[] soFiles = Directory.GetFiles("Assets", "*.so", SearchOption.AllDirectories);
-        int fixed_count = 0;
+        Debug.Log("[FixPluginImportSettings] Starting native plugin fix...");
         
+        // Find all .so files in Assets
+        string[] soFiles = Directory.GetFiles("Assets", "*.so", SearchOption.AllDirectories);
+        Debug.Log($"[FixPluginImportSettings] Found {soFiles.Length} .so files");
+        
+        int fixed_count = 0;
         foreach (string soFile in soFiles)
         {
             string assetPath = soFile.Replace("\\", "/");
-            PluginImporter importer = AssetImporter.GetAtPath(assetPath) as PluginImporter;
-            if (importer == null) continue;
-
-            // Check if it's an armeabi-v7a lib
-            bool isArm = assetPath.Contains("armeabi-v7a") || assetPath.Contains("android");
+            Debug.Log($"[FixPluginImportSettings] Processing: {assetPath}");
             
-            if (isArm || assetPath.ToLower().Contains("fmod"))
+            // Force reimport as PluginImporter
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+            
+            PluginImporter importer = AssetImporter.GetAtPath(assetPath) as PluginImporter;
+            if (importer == null)
             {
-                bool changed = false;
-                
-                if (!importer.GetCompatibleWithPlatform(BuildTarget.Android))
+                Debug.LogWarning($"[FixPluginImportSettings] Cannot get PluginImporter for: {assetPath} - forcing reimport");
+                // Delete the .meta and reimport to let Unity auto-detect as native plugin
+                string metaPath = assetPath + ".meta";
+                if (File.Exists(metaPath))
                 {
-                    importer.SetCompatibleWithPlatform(BuildTarget.Android, true);
-                    changed = true;
+                    File.Delete(metaPath);
+                    AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+                    importer = AssetImporter.GetAtPath(assetPath) as PluginImporter;
                 }
-                
-                // Set CPU type for Android
-                if (importer.GetPlatformData(BuildTarget.Android, "CPU") != "ARMv7")
+                if (importer == null)
                 {
-                    importer.SetPlatformData(BuildTarget.Android, "CPU", "ARMv7");
-                    changed = true;
-                }
-                
-                if (changed)
-                {
-                    importer.SaveAndReimport();
-                    fixed_count++;
-                    Debug.Log($"[FixPluginImportSettings] Enabled Android/ARMv7 for: {assetPath}");
+                    Debug.LogError($"[FixPluginImportSettings] Still cannot get PluginImporter for: {assetPath}");
+                    continue;
                 }
             }
-        }
-        
-        // Also look for FMOD bank files in StreamingAssets
-        string fmodBanksDir = "Assets/StreamingAssets";
-        if (!Directory.Exists(fmodBanksDir))
-        {
-            // Try to find FMOD banks elsewhere and copy them
-            string[] bankFiles = Directory.GetFiles("Assets", "*.bank", SearchOption.AllDirectories);
-            if (bankFiles.Length > 0)
+
+            bool changed = false;
+            
+            // Disable for all platforms first
+            importer.SetCompatibleWithAnyPlatform(false);
+            
+            // Enable specifically for Android
+            importer.SetCompatibleWithPlatform(BuildTarget.Android, true);
+            
+            // Set CPU type for Android
+            importer.SetPlatformData(BuildTarget.Android, "CPU", "ARMv7");
+            
+            // Disable for Editor (native .so won't run on editor anyway)
+            importer.SetCompatibleWithEditor(false);
+            
+            changed = true;
+            
+            if (changed)
             {
-                Directory.CreateDirectory(fmodBanksDir);
-                foreach (string bank in bankFiles)
-                {
-                    string dest = Path.Combine(fmodBanksDir, Path.GetFileName(bank));
-                    if (!File.Exists(dest))
-                    {
-                        File.Copy(bank, dest);
-                        Debug.Log($"[FixPluginImportSettings] Copied FMOD bank to StreamingAssets: {Path.GetFileName(bank)}");
-                    }
-                }
+                importer.SaveAndReimport();
+                fixed_count++;
+                Debug.Log($"[FixPluginImportSettings] FIXED: {assetPath} -> Android/ARMv7");
             }
         }
         
         if (fixed_count > 0)
             Debug.Log($"[FixPluginImportSettings] Fixed {fixed_count} native plugins for Android");
+        else
+            Debug.Log("[FixPluginImportSettings] No plugins needed fixing");
     }
 }

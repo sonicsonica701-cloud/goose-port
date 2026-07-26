@@ -299,7 +299,14 @@ jobs:
 
           echo "=== Patching PostProcessing DLLs ==="
           MANAGED_DIR="/opt/unity/Editor/Data/Managed"
-          CECIL_DLL=$(find /opt/unity -name "Mono.Cecil.dll" 2>/dev/null | head -1)
+          CECIL_DLL=$(find /opt/unity/Editor/Data/Managed -name "Mono.Cecil.dll" 2>/dev/null | head -1)
+          if [ -z "$CECIL_DLL" ]; then
+            CECIL_DLL=$(find /opt/unity -path "*/4.5/Mono.Cecil.dll" 2>/dev/null | head -1)
+          fi
+          if [ -z "$CECIL_DLL" ]; then
+            CECIL_DLL=$(find /opt/unity -name "Mono.Cecil.dll" 2>/dev/null | grep -v unity_web | head -1)
+          fi
+          echo "Using Cecil: $CECIL_DLL"
           if [ -n "$CECIL_DLL" ] && [ -f /tmp/PatchDLL.cs ]; then
             # Find mcs within Unity Mono distribution
             MONO_BIN="/opt/unity/Editor/Data/MonoBleedingEdge/bin/mono"
