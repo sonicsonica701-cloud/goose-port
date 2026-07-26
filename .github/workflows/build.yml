@@ -285,83 +285,75 @@ jobs:
       - name: Build APK with pre-activated license
         run: |
           set -e
-          docker run --rm \
-            -v "$PWD/ExportedProject":/project \
-            -v "$PWD/UnityEntitlementLicense.xml":/root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml:ro \
-            -v "$PWD/ci-scripts/PatchDLL.cs":/tmp/PatchDLL.cs:ro \
-            -w /project \
-            unityci/editor:ubuntu-2020.3.48f1-android-3 \
-            bash -c '
-              echo "=== License check ==="
-              grep -o "com.unity.editor[^\"]*" /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml || true
+          # Write Docker build script to a file to avoid quoting issues
+          cat > /tmp/docker_build.sh << 'DOCKERSCRIPT'
+          #!/bin/bash
+          set -e
+          echo "=== License check ==="
+          grep -o "com.unity.editor[^"]*" /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml || true
 
-              echo "=== Native plugins ==="
-              find /project/Assets -name "*.so" -ls
-              echo "=== Verify FMOD5 symbols ==="
-              nm -D /project/Assets/Plugins/Android/armeabi-v7a/libfmod.so 2>/dev/null | grep FMOD5 | head -5 || echo "(nm not available)"
+          echo "=== Native plugins ==="
+          find /project/Assets -name "*.so" -ls
+          echo "=== Verify FMOD5 symbols ==="
+          nm -D /project/Assets/Plugins/Android/armeabi-v7a/libfmod.so 2>/dev/null | grep FMOD5 | head -5 || echo "(nm not available)"
 
-              echo "=== Patching PostProcessing DLLs ==="
-              MANAGED_DIR="/opt/unity/Editor/Data/Managed"
-              CECIL_DLL=$(find /opt/unity -name "Mono.Cecil.dll" 2>/dev/null | head -1)
-              if [ -n "$CECIL_DLL" ] && [ -f /tmp/PatchDLL.cs ]; then
-                # Find mcs within Unity's Mono distribution
-                MONO_BIN="/opt/unity/Editor/Data/MonoBleedingEdge/bin/mono"
-                MCS_EXE=$(find /opt/unity -name "mcs" -o -name "mcs.exe" 2>/dev/null | head -1)
-                if [ -z "$MCS_EXE" ]; then
-                  # Fallback: install mono-mcs
-                  apt-get update -qq && apt-get install -y -qq mono-mcs 2>/dev/null || true
-                  MCS_EXE=$(which mcs 2>/dev/null || echo "")
-                fi
-                if [ -n "$MCS_EXE" ] && echo "$MCS_EXE" | grep -q "\.exe$"; then
-                  $MONO_BIN "$MCS_EXE" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs via mono failed"
-                elif [ -n "$MCS_EXE" ]; then
-                  "$MCS_EXE" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs failed"
-                else
-                  echo "ERROR: No C# compiler found, trying csc"
-                  CSC=$(find /opt/unity -name "csc" -o -name "csc.exe" 2>/dev/null | head -1)
-                  if [ -n "$CSC" ]; then
-                    $MONO_BIN "$CSC" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled via csc" || echo "csc failed too"
-                  else
-                    echo "FATAL: No compiler found at all"
-                  fi
-                fi
-                if [ -f /tmp/PatchDLL.exe ]; then
-                  for DLL in /project/Assets/Plugins/Unity.Postprocessing.Runtime.dll /project/Assets/Plugins/Unity.TextMeshPro.dll; do
-                    if [ -f "$DLL" ]; then
-                      echo "  Patching: $DLL"
-                      mono /tmp/PatchDLL.exe "$DLL" "$MANAGED_DIR" || echo "  (failed)"
-                    fi
-                  done
-                fi
-              else
-                echo "Cecil not found or PatchDLL.cs missing"
+          echo "=== Patching PostProcessing DLLs ==="
+          MANAGED_DIR="/opt/unity/Editor/Data/Managed"
+          CECIL_DLL=$(find /opt/unity -name "Mono.Cecil.dll" 2>/dev/null | head -1)
+          if [ -n "$CECIL_DLL" ] && [ -f /tmp/PatchDLL.cs ]; then
+            # Find mcs within Unity Mono distribution
+            MONO_BIN="/opt/unity/Editor/Data/MonoBleedingEdge/bin/mono"
+            MCS_EXE=$(find /opt/unity -path "*/MonoBleedingEdge/lib/mono/*/mcs.exe" 2>/dev/null | head -1)
+            if [ -z "$MCS_EXE" ]; then
+              MCS_EXE=$(find /opt/unity -name "mcs.exe" 2>/dev/null | head -1)
+            fi
+            if [ -z "$MCS_EXE" ]; then
+              # Fallback: install mono-mcs
+              apt-get update -qq && apt-get install -y -qq mono-mcs 2>/dev/null || true
+              MCS_CMD=$(which mcs 2>/dev/null || echo "")
+              if [ -n "$MCS_CMD" ]; then
+                "$MCS_CMD" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs failed"
               fi
-
-              echo "=== Patching Localization (streamingAssetsPath -> persistentDataPath) ==="
-              if [ -f /tmp/PatchDLL.exe ]; then
-                ASMCSHARP="/project/Assets/Plugins/Assembly-CSharp.dll"
-                if [ ! -f "$ASMCSHARP" ]; then
-                  ASMCSHARP=$(find /project/Assets -name "Assembly-CSharp.dll" 2>/dev/null | head -1)
+            else
+              echo "Found mcs at: $MCS_EXE"
+              $MONO_BIN "$MCS_EXE" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs via mono failed"
+            fi
+            if [ -f /tmp/PatchDLL.exe ]; then
+              for DLL in /project/Assets/Plugins/Unity.Postprocessing.Runtime.dll /project/Assets/Plugins/Unity.TextMeshPro.dll; do
+                if [ -f "$DLL" ]; then
+                  echo "  Patching: $DLL"
+                  mono /tmp/PatchDLL.exe "$DLL" "$MANAGED_DIR" "rendering" || echo "  (failed)"
                 fi
-                if [ -n "$ASMCSHARP" ] && [ -f "$ASMCSHARP" ]; then
-                  echo "  Patching localization in: $ASMCSHARP"
-                  mono /tmp/PatchDLL.exe "$ASMCSHARP" "$MANAGED_DIR" "localization" || echo "  (localization patch failed)"
-                else
-                  echo "  Assembly-CSharp.dll not found, skipping localization patch"
-                fi
-              fi
+              done
+            else
+              echo "ERROR: PatchDLL.exe was not compiled"
+            fi
+          else
+            echo "Cecil not found or PatchDLL.cs missing"
+            echo "  CECIL_DLL=$CECIL_DLL"
+            ls /tmp/PatchDLL.cs 2>/dev/null || echo "  PatchDLL.cs not mounted"
+          fi
 
-              echo "=== Running Unity build ==="
-              /opt/unity/Editor/Unity \
-                -batchmode -nographics -quit \
-                -projectPath /project \
-                -executeMethod AndroidBuilder.BuildAndroid \
-                -logFile /dev/stdout \
-                -buildTarget Android
-              echo "=== Build output ==="
-              ls -la /project/Build/ || true
-              chown -R $(stat -c "%u:%g" /project) /project/Build || true
-            '
+          echo "=== Patching Localization (streamingAssetsPath -> persistentDataPath) ==="
+          if [ -f /tmp/PatchDLL.exe ]; then
+            ASMCSHARP=$(find /project/Assets -name "Assembly-CSharp.dll" 2>/dev/null | head -1)
+            if [ -n "$ASMCSHARP" ] && [ -f "$ASMCSHARP" ]; then
+              echo "  Patching localization in: $ASMCSHARP"
+              mono /tmp/PatchDLL.exe "$ASMCSHARP" "$MANAGED_DIR" "localization" || echo "  (localization patch failed)"
+            else
+              echo "  Assembly-CSharp.dll not found, skipping localization patch"
+            fi
+          fi
+
+          echo "=== Running Unity build ==="
+          /opt/unity/Editor/Unity -batchmode -nographics -quit -projectPath /project -executeMethod AndroidBuilder.BuildAndroid -logFile /dev/stdout -buildTarget Android
+          echo "=== Build output ==="
+          ls -la /project/Build/ || true
+          chown -R $(stat -c "%u:%g" /project) /project/Build || true
+          DOCKERSCRIPT
+          chmod +x /tmp/docker_build.sh
+
+          docker run --rm -v "$PWD/ExportedProject":/project -v "$PWD/UnityEntitlementLicense.xml":/root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml:ro -v "$PWD/ci-scripts/PatchDLL.cs":/tmp/PatchDLL.cs:ro -v "/tmp/docker_build.sh":/tmp/docker_build.sh:ro -w /project unityci/editor:ubuntu-2020.3.48f1-android-3 bash /tmp/docker_build.sh
 
       - name: List build output
         if: always()
