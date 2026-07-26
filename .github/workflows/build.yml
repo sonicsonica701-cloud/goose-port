@@ -279,6 +279,25 @@ jobs:
           fi
           ls -la ExportedProject/Assets/StreamingAssets/StringTables/ 2>/dev/null || echo "Warning: No StringTables found"
 
+      - name: Patch LocalizationManager for Android path
+        run: |
+          set -e
+          echo "=== Patching LocalizationManager.cs for Android ==="
+          # Find the LocalizationManager.cs in the project
+          LM_FILE=$(find ExportedProject/Assets -name "LocalizationManager.cs" -not -path "*/Editor/*" | head -1)
+          if [ -n "$LM_FILE" ]; then
+            echo "Found: $LM_FILE"
+            # Replace Application.streamingAssetsPath with our Android-safe path getter
+            # On Android, streamingAssetsPath returns jar:// which File.ReadAllText can't read
+            # Replace with persistentDataPath + "/StreamingAssets" on Android
+            sed -i 's/Application\.streamingAssetsPath/LocalizationManagerPatch.GetStreamingPath()/g' "$LM_FILE"
+            echo "Patched streamingAssetsPath references"
+            grep -n "GetStreamingPath\|streamingAssetsPath" "$LM_FILE" | head -10
+          else
+            echo "LocalizationManager.cs not found - searching more broadly..."
+            find ExportedProject -name "*.cs" -exec grep -l "langauge\|Cannot find.*lang" {} \; | head -5
+          fi
+
       - name: Pull Unity Android editor image
         run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
 
@@ -329,7 +348,7 @@ jobs:
               for DLL in /project/Assets/Plugins/Unity.Postprocessing.Runtime.dll /project/Assets/Plugins/Unity.TextMeshPro.dll; do
                 if [ -f "$DLL" ]; then
                   echo "  Patching: $DLL"
-                  mono /tmp/PatchDLL.exe "$DLL" "$MANAGED_DIR" "rendering" || echo "  (failed)"
+                  mono /tmp/PatchDLL.exe "$DLL" "$MANAGED_DIR" "rendering" 2>&1 || echo "  (patcher returned error)"
                 fi
               done
             else
