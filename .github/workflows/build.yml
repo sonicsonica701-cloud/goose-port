@@ -290,12 +290,12 @@ jobs:
           #!/bin/bash
           set -e
           echo "=== License check ==="
-          grep -o "com.unity.editor[^"]*" /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml || true
+          cat /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml | head -5 || echo "No license file"
 
           echo "=== Native plugins ==="
           find /project/Assets -name "*.so" -ls
           echo "=== Verify FMOD5 symbols ==="
-          nm -D /project/Assets/Plugins/Android/armeabi-v7a/libfmod.so 2>/dev/null | grep FMOD5 | head -5 || echo "(nm not available)"
+          nm -D /project/Assets/Plugins/Android/armeabi-v7a/libfmod.so 2>/dev/null | grep FMOD5 | head -5 || echo "nm not available"
 
           echo "=== Patching PostProcessing DLLs ==="
           MANAGED_DIR="/opt/unity/Editor/Data/Managed"
