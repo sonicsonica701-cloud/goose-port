@@ -21,7 +21,14 @@ jobs:
           df -h
 
       - name: Install tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd gcc-arm-linux-gnueabihf
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd
+
+      - name: Install Android NDK (for FMOD stub, correct Bionic ABI)
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r23c
+          local-cache: true
 
       - name: Download project tarball from release
         env:
@@ -62,7 +69,15 @@ jobs:
         run: |
           set -e
           echo "=== Building FMOD stub .so for armeabi-v7a (FMOD5_ prefix) ==="
-          ARM_CC="arm-linux-gnueabihf-gcc"
+          # IMPORTANT: must use the Android NDK toolchain (Bionic libc/ABI), NOT a
+          # glibc/hard-float ARM Linux cross-compiler. A .so built with
+          # arm-linux-gnueabihf-gcc targets a completely different C library and
+          # ABI than Android and will fail to load (UnsatisfiedLinkError) or behave
+          # unpredictably on-device even though it links fine on the CI host.
+          ARM_CC="${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi22-clang"
+          ARM_NM="${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          echo "Using NDK compiler: $ARM_CC"
+          "$ARM_CC" --version || { echo "NDK compiler not found at expected path"; exit 1; }
 
           # The Unity FMOD binding uses FMOD5_ prefix for the native C functions
           cat > /tmp/fmod_stub.c << 'STUBEOF'
@@ -236,13 +251,22 @@ jobs:
           FMOD_RESULT FMOD5_Studio_VCA_GetPath(void* vca, char* path, int size, int* retrieved) { if(retrieved)*retrieved=0; return FMOD_OK; }
           STUBEOF
 
-          # Compile
-          $ARM_CC -shared -o /tmp/libfmod.so /tmp/fmod_stub.c -Wl,-soname,libfmod.so -lc
-          $ARM_CC -shared -o /tmp/libfmodstudio.so /tmp/fmodstudio_stub.c -Wl,-soname,libfmodstudio.so -lc
+          # Compile with the NDK clang (Bionic/Android ABI), position-independent
+          # code as required by Android's dynamic linker.
+          $ARM_CC -shared -fPIC -o /tmp/libfmod.so /tmp/fmod_stub.c -Wl,-soname,libfmod.so
+          $ARM_CC -shared -fPIC -o /tmp/libfmodstudio.so /tmp/fmodstudio_stub.c -Wl,-soname,libfmodstudio.so
 
           echo "=== Verifying FMOD5_ symbols ==="
-          arm-linux-gnueabihf-nm -D /tmp/libfmod.so | grep "FMOD5" | head -10
-          arm-linux-gnueabihf-nm -D /tmp/libfmodstudio.so | grep "FMOD5" | head -10
+          "$ARM_NM" -D /tmp/libfmod.so | grep "FMOD5" | head -10
+          "$ARM_NM" -D /tmp/libfmodstudio.so | grep "FMOD5" | head -10
+
+          echo "NOTE: these are still functional no-op stubs (fake success codes,"
+          echo "no real playback). Fixing the ABI stops the library from failing to"
+          echo "load / crashing on device, but audio will remain SILENT until the"
+          echo "real FMOD Android libraries (fmod.org account, redistributable .so"
+          echo "for FMOD Studio matching the API version this game shipped with)"
+          echo "or a rewrite onto Unity's built-in AudioSource/AudioClip pipeline"
+          echo "replaces this stub."
 
           # Install into project
           PLUGIN_DIR="ExportedProject/Assets/Plugins/Android/armeabi-v7a"

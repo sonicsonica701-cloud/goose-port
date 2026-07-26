@@ -50,6 +50,25 @@ public class AndroidBuilder
         PlayerSettings.allowedAutorotateToPortrait = false;
         PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
 
+        // --- FIX: pin the graphics API to OpenGL ES 3 only. This project came
+        // in with Unity's default "Auto Graphics API" list (Vulkan first, GLES3
+        // fallback). The AssetRipper-exported shaders/post-processing were
+        // authored against the PC (D3D/desktop GL) pipeline and were never
+        // validated against this device's Vulkan driver; picking Vulkan on a
+        // low-end/older ARMv7 GPU is a common source of corrupted/garbled
+        // rendering on exactly this kind of export. Forcing GLES3-only removes
+        // that variable.
+        PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
+        PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new UnityEngine.Rendering.GraphicsDeviceType[]
+        {
+            UnityEngine.Rendering.GraphicsDeviceType.OpenGLES3
+        });
+
+        // --- FIX: re-target textures for mobile GPU-native compression
+        // instead of leaving them in whatever desktop-compressed format
+        // AssetRipper exported them in (see MobileTextureCompressionFixer.cs).
+        MobileTextureCompressionFixer.FixAll();
+
         var opts = new BuildPlayerOptions
         {
             scenes = scenes.ToArray(),
