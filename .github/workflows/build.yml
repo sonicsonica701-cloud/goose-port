@@ -237,8 +237,8 @@ jobs:
           STUBEOF
 
           # Compile
-          $ARM_CC -shared -o /tmp/libfmod.so /tmp/fmod_stub.c -Wl,-soname,libfmod.so -nostdlib
-          $ARM_CC -shared -o /tmp/libfmodstudio.so /tmp/fmodstudio_stub.c -Wl,-soname,libfmodstudio.so -nostdlib
+          $ARM_CC -shared -o /tmp/libfmod.so /tmp/fmod_stub.c -Wl,-soname,libfmod.so -lc
+          $ARM_CC -shared -o /tmp/libfmodstudio.so /tmp/fmodstudio_stub.c -Wl,-soname,libfmodstudio.so -lc
 
           echo "=== Verifying FMOD5_ symbols ==="
           arm-linux-gnueabihf-nm -D /tmp/libfmod.so | grep "FMOD5" | head -10
@@ -250,46 +250,14 @@ jobs:
           cp /tmp/libfmod.so "$PLUGIN_DIR/"
           cp /tmp/libfmodstudio.so "$PLUGIN_DIR/"
 
-          # Create .meta files
+          # Create .meta files (NO leading whitespace - Unity PluginImporter requires exact format)
           for LIB in libfmod.so libfmodstudio.so; do
             GUID=$(cat /proc/sys/kernel/random/uuid | tr -d '-' | head -c 32)
-            cat > "$PLUGIN_DIR/${LIB}.meta" << METAEOF
-          fileFormatVersion: 2
-          guid: ${GUID}
-          PluginImporter:
-            externalObjects: {}
-            serializedVersion: 2
-            iconMap: {}
-            executionOrder: {}
-            defineConstraints: []
-            isPreloaded: 1
-            isOverridable: 0
-            isExplicitlyReferenced: 0
-            validateReferences: 1
-            platformData:
-            - first:
-                Android: Android
-              second:
-                enabled: 1
-                settings:
-                  CPU: ARMv7
-            - first:
-                Any:
-              second:
-                enabled: 0
-                settings: {}
-            - first:
-                Editor: Editor
-              second:
-                enabled: 0
-                settings:
-                  DefaultValueInitialized: true
-            userData:
-            userDataPath:
-            assetBundleName:
-            assetBundleVariant:
-          METAEOF
+            printf 'fileFormatVersion: 2\nguid: %s\nPluginImporter:\n  externalObjects: {}\n  serializedVersion: 2\n  iconMap: {}\n  executionOrder: {}\n  defineConstraints: []\n  isPreloaded: 1\n  isOverridable: 0\n  isExplicitlyReferenced: 0\n  validateReferences: 1\n  platformData:\n  - first:\n      Android: Android\n    second:\n      enabled: 1\n      settings:\n        CPU: ARMv7\n  - first:\n      Any:\n    second:\n      enabled: 0\n      settings: {}\n  - first:\n      Editor: Editor\n    second:\n      enabled: 0\n      settings:\n        DefaultValueInitialized: true\n  userData:\n  userDataPath:\n  assetBundleName:\n  assetBundleVariant:\n' "$GUID" > "$PLUGIN_DIR/${LIB}.meta"
           done
+          # Verify .meta files have no leading whitespace
+          echo "=== Verify .meta format (first 3 lines) ==="
+          head -3 "$PLUGIN_DIR/libfmod.so.meta"
           echo "=== FMOD5 stubs installed ==="
 
       - name: Fix StringTables loading path
@@ -336,7 +304,27 @@ jobs:
               MANAGED_DIR="/opt/unity/Editor/Data/Managed"
               CECIL_DLL=$(find /opt/unity -name "Mono.Cecil.dll" 2>/dev/null | head -1)
               if [ -n "$CECIL_DLL" ] && [ -f /tmp/PatchDLL.cs ]; then
-                mcs -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs failed"
+                # Find mcs within Unity's Mono distribution
+                MONO_BIN="/opt/unity/Editor/Data/MonoBleedingEdge/bin/mono"
+                MCS_EXE=$(find /opt/unity -name "mcs" -o -name "mcs.exe" 2>/dev/null | head -1)
+                if [ -z "$MCS_EXE" ]; then
+                  # Fallback: install mono-mcs
+                  apt-get update -qq && apt-get install -y -qq mono-mcs 2>/dev/null || true
+                  MCS_EXE=$(which mcs 2>/dev/null || echo "")
+                fi
+                if [ -n "$MCS_EXE" ] && echo "$MCS_EXE" | grep -q "\.exe$"; then
+                  $MONO_BIN "$MCS_EXE" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs via mono failed"
+                elif [ -n "$MCS_EXE" ]; then
+                  "$MCS_EXE" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs failed"
+                else
+                  echo "ERROR: No C# compiler found, trying csc"
+                  CSC=$(find /opt/unity -name "csc" -o -name "csc.exe" 2>/dev/null | head -1)
+                  if [ -n "$CSC" ]; then
+                    $MONO_BIN "$CSC" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled via csc" || echo "csc failed too"
+                  else
+                    echo "FATAL: No compiler found at all"
+                  fi
+                fi
                 if [ -f /tmp/PatchDLL.exe ]; then
                   for DLL in /project/Assets/Plugins/Unity.Postprocessing.Runtime.dll /project/Assets/Plugins/Unity.TextMeshPro.dll; do
                     if [ -f "$DLL" ]; then
@@ -347,6 +335,20 @@ jobs:
                 fi
               else
                 echo "Cecil not found or PatchDLL.cs missing"
+              fi
+
+              echo "=== Patching Localization (streamingAssetsPath -> persistentDataPath) ==="
+              if [ -f /tmp/PatchDLL.exe ]; then
+                ASMCSHARP="/project/Assets/Plugins/Assembly-CSharp.dll"
+                if [ ! -f "$ASMCSHARP" ]; then
+                  ASMCSHARP=$(find /project/Assets -name "Assembly-CSharp.dll" 2>/dev/null | head -1)
+                fi
+                if [ -n "$ASMCSHARP" ] && [ -f "$ASMCSHARP" ]; then
+                  echo "  Patching localization in: $ASMCSHARP"
+                  mono /tmp/PatchDLL.exe "$ASMCSHARP" "$MANAGED_DIR" "localization" || echo "  (localization patch failed)"
+                else
+                  echo "  Assembly-CSharp.dll not found, skipping localization patch"
+                fi
               fi
 
               echo "=== Running Unity build ==="
