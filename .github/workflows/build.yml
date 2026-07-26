@@ -348,7 +348,7 @@ jobs:
               for DLL in /project/Assets/Plugins/Unity.Postprocessing.Runtime.dll /project/Assets/Plugins/Unity.TextMeshPro.dll; do
                 if [ -f "$DLL" ]; then
                   echo "  Patching: $DLL"
-                  mono /tmp/PatchDLL.exe "$DLL" "$MANAGED_DIR" "rendering" 2>&1 || echo "  (patcher returned error)"
+                  $MONO_BIN /tmp/PatchDLL.exe "$DLL" "$MANAGED_DIR" "rendering" 2>&1 || echo "  (patcher returned error)"
                 fi
               done
             else
@@ -365,7 +365,7 @@ jobs:
             ASMCSHARP=$(find /project/Assets -name "Assembly-CSharp.dll" 2>/dev/null | head -1)
             if [ -n "$ASMCSHARP" ] && [ -f "$ASMCSHARP" ]; then
               echo "  Patching localization in: $ASMCSHARP"
-              mono /tmp/PatchDLL.exe "$ASMCSHARP" "$MANAGED_DIR" "localization" || echo "  (localization patch failed)"
+              $MONO_BIN /tmp/PatchDLL.exe "$ASMCSHARP" "$MANAGED_DIR" "localization" || echo "  (localization patch failed)"
             else
               echo "  Assembly-CSharp.dll not found, skipping localization patch"
             fi
