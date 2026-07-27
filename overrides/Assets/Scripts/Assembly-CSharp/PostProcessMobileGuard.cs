@@ -23,9 +23,17 @@ using UnityEngine.Rendering.PostProcessing;
 /// ARMv7 device this targets) at runtime, after the exported PostProcessProfile
 /// assets load, before the first frame renders.
 ///
+/// ADDITIONALLY: device logs show per-frame render errors
+///   "Hidden/PostProcessing/SubpixelMorphologicalAntialiasing: invalid pass
+///    index 5/6 in DrawMesh"
+/// The AssetRipper-exported SMAA shader is missing passes that the
+/// PostProcessing stack expects, so SMAA fails every frame and can corrupt
+/// the final image. We therefore also force antialiasingMode = None on every
+/// PostProcessLayer on Android.
+///
 /// This trades some visual fidelity (no bokeh blur, no multi-scale ambient
-/// occlusion) for correct, non-corrupted output - the standard tradeoff made
-/// when porting PC post-processing stacks to mobile GPUs.
+/// occlusion, no SMAA) for correct, non-corrupted output - the standard
+/// tradeoff made when porting PC post-processing stacks to mobile GPUs.
 /// </summary>
 public class PostProcessMobileGuard : MonoBehaviour
 {
@@ -41,8 +49,10 @@ public class PostProcessMobileGuard : MonoBehaviour
 #if UNITY_ANDROID && !UNITY_EDITOR
     static void GuardScene()
     {
-        var volumes = Object.FindObjectsOfType<PostProcessVolume>(true);
         int touched = 0;
+
+        // 1) Disable compute-driven profile effects (DoF, MSVO AO, SSR)
+        var volumes = Object.FindObjectsOfType<PostProcessVolume>(true);
         foreach (var volume in volumes)
         {
             var profile = volume.profile;
@@ -70,8 +80,22 @@ public class PostProcessMobileGuard : MonoBehaviour
             }
         }
 
+        // 2) Kill SMAA/TAA on every PostProcessLayer - the exported SMAA shader
+        //    is missing passes ("invalid pass index 5/6 in DrawMesh" every frame).
+        var layers = Object.FindObjectsOfType<PostProcessLayer>(true);
+        foreach (var layer in layers)
+        {
+            if (layer.antialiasingMode != PostProcessLayer.Antialiasing.None)
+            {
+                Debug.Log($"[PostProcessMobileGuard] PostProcessLayer '{layer.gameObject.name}': " +
+                          $"antialiasing {layer.antialiasingMode} -> None (broken SMAA shader passes on Android).");
+                layer.antialiasingMode = PostProcessLayer.Antialiasing.None;
+                touched++;
+            }
+        }
+
         if (touched > 0)
-            Debug.Log($"[PostProcessMobileGuard] Disabled {touched} mobile-incompatible post-process effect(s).");
+            Debug.Log($"[PostProcessMobileGuard] Disabled {touched} mobile-incompatible post-process feature(s).");
     }
 #endif
 }
