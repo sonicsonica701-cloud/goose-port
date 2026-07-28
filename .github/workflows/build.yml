@@ -357,7 +357,7 @@ jobs:
       - name: Install dependencies for Unity 2018.4
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libglu1-mesa libxi6 libxcursor1 libxrandr2 libxinerama1 xvfb cpio p7zip-full
+          sudo apt-get install -y -qq libglu1-mesa libxi6 libxcursor1 libxrandr2 libxinerama1 xvfb cpio p7zip-full libgconf-2-4 libgtk-3-0 libnotify4 libnss3 libxss1 libasound2 libxtst6 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libpango-1.0-0 libcairo2 libatspi2.0-0
 
       - name: Install Unity 2018.4.36f1 + Android support
         run: |
@@ -424,7 +424,7 @@ jobs:
 
           # Also try activating with credentials (works on bare metal better than Docker)
           echo "Attempting license activation..."
-          "$UNITY" -batchmode -nographics -quit \
+          xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
             -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
             -logFile /dev/stdout 2>&1 | tail -20 || true
 
@@ -451,7 +451,7 @@ jobs:
           UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
           echo "Building with: $UNITY"
 
-          "$UNITY" -batchmode -nographics -quit \
+          xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
             -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
             -projectPath "$PWD/ExportedProject" \
             -executeMethod AndroidBuilder.BuildAndroid \
