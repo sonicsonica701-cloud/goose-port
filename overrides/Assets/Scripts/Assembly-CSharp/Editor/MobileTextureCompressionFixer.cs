@@ -50,7 +50,7 @@ public static class MobileTextureCompressionFixer
             }
 
             platformSettings.overridden = true;
-            platformSettings.format = TextureImporterFormat.ASTC_6x6;
+            platformSettings.format = TextureImporterFormat.ASTC_RGB_6x6;
             platformSettings.androidETC2FallbackOverride = AndroidETC2FallbackOverride.Quality32Bit;
             platformSettings.maxTextureSize = platformSettings.overridden && platformSettings.maxTextureSize > 0
                 ? platformSettings.maxTextureSize

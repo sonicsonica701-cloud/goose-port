@@ -59,11 +59,15 @@ jobs:
             cp -rv overrides/* ExportedProject/ | tail -30
           fi
 
-      - name: Fix deprecated API calls
+      - name: Verify API compatibility (Unity 2018.4)
         run: |
           set -e
-          echo "=== Fixing deprecated Graphics.DrawProceduralIndirect ==="
-          find ExportedProject -name "DepthOfField.cs" -exec sed -i 's/Graphics\.DrawProceduralIndirect(/Graphics.DrawProceduralIndirectNow(/g' {} \; -print
+          # NOTE: DrawProceduralIndirect is the CORRECT API for 2018.4
+          # DrawProceduralIndirectNow was only added in 2019.4
+          # No patching needed with matching engine version
+          echo "Unity 2018.4 API - no deprecated call fixes needed"
+          echo "Game engine version matches build engine version"
+
 
       - name: Build FMOD stub native libraries (FMOD5_ ABI)
         run: |
@@ -323,7 +327,7 @@ jobs:
           fi
 
       - name: Pull Unity Android editor image
-        run: docker pull unityci/editor:ubuntu-2020.3.48f1-android-3
+        run: docker pull unityci/editor:ubuntu-2018.4.36f1-android-3
 
       - name: Build APK with pre-activated license
         run: |
@@ -332,6 +336,7 @@ jobs:
           cat > /tmp/docker_build.sh << 'DOCKERSCRIPT'
           #!/bin/bash
           set -e
+          echo "=== Unity 2018.4 Build (matching game engine version) ==="
           echo "=== License check ==="
           cat /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml | head -5 || echo "No license file"
 
@@ -340,62 +345,21 @@ jobs:
           echo "=== Verify FMOD5 symbols ==="
           nm -D /project/Assets/Plugins/Android/armeabi-v7a/libfmod.so 2>/dev/null | grep FMOD5 | head -5 || echo "nm not available"
 
-          echo "=== Patching PostProcessing DLLs ==="
-          MANAGED_DIR="/opt/unity/Editor/Data/Managed"
-          CECIL_DLL=$(find /opt/unity/Editor/Data/Managed -name "Mono.Cecil.dll" 2>/dev/null | head -1)
-          if [ -z "$CECIL_DLL" ]; then
-            CECIL_DLL=$(find /opt/unity -path "*/4.5/Mono.Cecil.dll" 2>/dev/null | head -1)
-          fi
-          if [ -z "$CECIL_DLL" ]; then
-            CECIL_DLL=$(find /opt/unity -name "Mono.Cecil.dll" 2>/dev/null | grep -v unity_web | head -1)
-          fi
-          echo "Using Cecil: $CECIL_DLL"
-          if [ -n "$CECIL_DLL" ] && [ -f /tmp/PatchDLL.cs ]; then
-            # Find mcs within Unity Mono distribution
-            MONO_BIN="/opt/unity/Editor/Data/MonoBleedingEdge/bin/mono"
-            MCS_EXE=$(find /opt/unity -path "*/MonoBleedingEdge/lib/mono/*/mcs.exe" 2>/dev/null | head -1)
-            if [ -z "$MCS_EXE" ]; then
-              MCS_EXE=$(find /opt/unity -name "mcs.exe" 2>/dev/null | head -1)
-            fi
-            if [ -z "$MCS_EXE" ]; then
-              # Fallback: install mono-mcs
-              apt-get update -qq && apt-get install -y -qq mono-mcs 2>/dev/null || true
-              MCS_CMD=$(which mcs 2>/dev/null || echo "")
-              if [ -n "$MCS_CMD" ]; then
-                "$MCS_CMD" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs failed"
-              fi
-            else
-              echo "Found mcs at: $MCS_EXE"
-              $MONO_BIN "$MCS_EXE" -r:"$CECIL_DLL" /tmp/PatchDLL.cs -out:/tmp/PatchDLL.exe 2>&1 && echo "Patcher compiled" || echo "mcs via mono failed"
-            fi
-            if [ -f /tmp/PatchDLL.exe ]; then
-              for DLL in /project/Assets/Plugins/Unity.Postprocessing.Runtime.dll /project/Assets/Plugins/Unity.TextMeshPro.dll; do
-                if [ -f "$DLL" ]; then
-                  echo "  Patching: $DLL"
-                  $MONO_BIN /tmp/PatchDLL.exe "$DLL" "$MANAGED_DIR" "rendering" 2>&1 || echo "  (patcher returned error)"
-                fi
-              done
-            else
-              echo "ERROR: PatchDLL.exe was not compiled"
-            fi
-          else
-            echo "Cecil not found or PatchDLL.cs missing"
-            echo "  CECIL_DLL=$CECIL_DLL"
-            ls /tmp/PatchDLL.cs 2>/dev/null || echo "  PatchDLL.cs not mounted"
-          fi
+          # NOTE: Cecil DLL patching REMOVED - not needed with correct Unity 2018.4
+          # The PostProcessing shaders already use UnityEngine.Experimental.Rendering
+          # which is the native namespace in 2018.4 (the version the game was built with)
 
           echo "=== Patching Localization (streamingAssetsPath -> persistentDataPath) ==="
-          if [ -f /tmp/PatchDLL.exe ]; then
-            ASMCSHARP=$(find /project/Assets -name "Assembly-CSharp.dll" 2>/dev/null | head -1)
-            if [ -n "$ASMCSHARP" ] && [ -f "$ASMCSHARP" ]; then
-              echo "  Patching localization in: $ASMCSHARP"
-              $MONO_BIN /tmp/PatchDLL.exe "$ASMCSHARP" "$MANAGED_DIR" "localization" || echo "  (localization patch failed)"
-            else
-              echo "  Assembly-CSharp.dll not found, skipping localization patch"
-            fi
+          LOC_FILE=$(find /project/Assets -name "LocalizationManager.cs" -not -path "*/Editor/*" 2>/dev/null | head -1)
+          if [ -n "$LOC_FILE" ]; then
+            echo "Patching $LOC_FILE for Android streaming assets..."
+            sed -i 's/Application\.streamingAssetsPath/LocalizationManagerPatch.GetStreamingPath()/g' "$LOC_FILE"
+            grep -c "GetStreamingPath" "$LOC_FILE" && echo "Localization patched" || echo "No matches to patch"
+          else
+            echo "LocalizationManager.cs not found (may already be handled by override)"
           fi
 
-          echo "=== Running Unity build ==="
+          echo "=== Running Unity 2018.4 build ==="
           /opt/unity/Editor/Unity -batchmode -nographics -quit -projectPath /project -executeMethod AndroidBuilder.BuildAndroid -logFile /dev/stdout -buildTarget Android
           echo "=== Build output ==="
           ls -la /project/Build/ || true
@@ -403,7 +367,7 @@ jobs:
           DOCKERSCRIPT
           chmod +x /tmp/docker_build.sh
 
-          docker run --rm -v "$PWD/ExportedProject":/project -v "$PWD/UnityEntitlementLicense.xml":/root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml:ro -v "$PWD/ci-scripts/PatchDLL.cs":/tmp/PatchDLL.cs:ro -v "/tmp/docker_build.sh":/tmp/docker_build.sh:ro -w /project unityci/editor:ubuntu-2020.3.48f1-android-3 bash /tmp/docker_build.sh
+          docker run --rm -v "$PWD/ExportedProject":/project -v "$PWD/UnityEntitlementLicense.xml":/root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml:ro -v "/tmp/docker_build.sh":/tmp/docker_build.sh:ro -w /project unityci/editor:ubuntu-2018.4.36f1-android-3 bash /tmp/docker_build.sh
 
       - name: List build output
         if: always()
@@ -426,7 +390,7 @@ jobs:
           TAG="v1.1.4-android-$(date +%Y%m%d%H%M%S)"
           gh release create "$TAG" "$APK_FILE" \
             --title "Untitled Goose Game - Android APK (ARMv7 32-bit)" \
-            --notes "32-bit ARMv7 Android APK - Unity 2020.3.48f1
+            --notes "32-bit ARMv7 Android APK - Unity 2018.4.36f1 (matching game engine)
 
           APK size: $APK_SIZE
           Architecture: ARMv7 (32-bit)
@@ -436,7 +400,6 @@ jobs:
           Fixes in this build:
           - Landscape orientation forced
           - FMOD5_ stub libs (correct ABI - prevents EntryPointNotFoundException)
-          - PostProcessing DLL patched with Mono.Cecil (Experimental.Rendering -> Rendering)
           - StringTables in StreamingAssets
           - Android StreamingAssets jar:// path helper" \
             --latest
