@@ -369,21 +369,38 @@ jobs:
           set -e
           echo "=== Unity 2018.4 Build (matching game engine version) ==="
 
-          echo "=== Setting up license for Unity 2018.4 ==="
-          # Unity 2018.4 uses .ulf at ~/.local/share/unity3d/Unity/Unity_lic.ulf
-          # The entitlement XML (2020+ format) is also mounted - try both paths
+          echo "=== Activating Unity 2018.4 License ==="
+          # Unity 2018.4 needs a proper .ulf file (NOT entitlement XML from 2020+)
+          # Try online activation with username/password first
           mkdir -p /root/.local/share/unity3d/Unity
-          if [ -f /tmp/license.xml ]; then
-            cp /tmp/license.xml /root/.local/share/unity3d/Unity/Unity_lic.ulf
-            echo "License copied to 2018.4 path"
+          
+          # If UNITY_LICENSE env var is set (contains .ulf content), write it
+          if [ -n "$UNITY_LICENSE" ]; then
+            echo "$UNITY_LICENSE" > /root/.local/share/unity3d/Unity/Unity_lic.ulf
+            echo "License written from UNITY_LICENSE env var"
           fi
-          # Also keep 2020+ path in case this image supports it
-          mkdir -p /root/.config/unity3d/Unity/licenses
-          if [ -f /tmp/license.xml ]; then
-            cp /tmp/license.xml /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml
+          
+          # Try activating with credentials
+          echo "Attempting online license activation..."
+          /opt/unity/Editor/Unity -batchmode -nographics -quit \
+            -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
+            -logFile /dev/stdout 2>&1 | tail -30 || true
+          
+          # Check if license is now valid
+          if [ -f /root/.local/share/unity3d/Unity/Unity_lic.ulf ]; then
+            echo "License file exists at expected path"
+            head -3 /root/.local/share/unity3d/Unity/Unity_lic.ulf
+          else
+            echo "WARNING: No license file found after activation attempt"
+            echo "Generating .alf for manual activation..."
+            /opt/unity/Editor/Unity -batchmode -nographics -quit -createManualActivationFile -logFile /dev/stdout 2>&1 || true
+            if ls /Unity_*.alf 2>/dev/null || ls *.alf 2>/dev/null; then
+              echo "=== MANUAL ACTIVATION REQUIRED ==="
+              echo "Upload this .alf content to https://license.unity3d.com/manual"
+              cat /Unity_*.alf 2>/dev/null || cat *.alf 2>/dev/null
+              echo "=== END .alf ==="
+            fi
           fi
-          ls -la /root/.local/share/unity3d/Unity/ 2>/dev/null || true
-          ls -la /root/.config/unity3d/Unity/licenses/ 2>/dev/null || true
 
           echo "=== Native plugins ==="
           find /project/Assets -name "*.so" -ls
@@ -405,21 +422,12 @@ jobs:
           fi
 
           echo "=== Running Unity 2018.4 build ==="
-          # Try with -manualLicenseFile first (for .ulf), fall back to username/password
           /opt/unity/Editor/Unity -batchmode -nographics -quit \
-            -manualLicenseFile /root/.local/share/unity3d/Unity/Unity_lic.ulf \
+            -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
             -projectPath /project \
             -executeMethod AndroidBuilder.BuildAndroid \
             -logFile /dev/stdout \
-            -buildTarget Android || {
-              echo "=== First attempt failed, trying with username/password ==="
-              /opt/unity/Editor/Unity -batchmode -nographics -quit \
-                -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
-                -projectPath /project \
-                -executeMethod AndroidBuilder.BuildAndroid \
-                -logFile /dev/stdout \
-                -buildTarget Android
-            }
+            -buildTarget Android
           echo "=== Build output ==="
           ls -la /project/Build/ || true
           chown -R $(stat -c "%u:%g" /project) /project/Build || true
