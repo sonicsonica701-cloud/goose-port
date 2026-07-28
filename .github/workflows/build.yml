@@ -359,13 +359,13 @@ jobs:
           sudo apt-get update -qq
           # Core libs (Ubuntu 24.04 compatible names)
           sudo apt-get install -y -qq libglu1-mesa libxi6 libxcursor1 libxrandr2 libxinerama1 \
-            xvfb cpio p7zip-full libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 \
+            xvfb cpio p7zip-full apt-file libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 \
             libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libpango-1.0-0 \
-            libcairo2 libatspi2.0-0 libasound2t64 || \
+            libcairo2 libatspi2.0-0 libdbus-glib-1-2 libasound2t64 || \
           sudo apt-get install -y -qq libglu1-mesa libxi6 libxcursor1 libxrandr2 libxinerama1 \
-            xvfb cpio p7zip-full libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 \
+            xvfb cpio p7zip-full apt-file libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 \
             libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libpango-1.0-0 \
-            libcairo2 libatspi2.0-0 libasound2
+            libcairo2 libatspi2.0-0 libdbus-glib-1-2 libasound2
           # libgconf-2 removed in Ubuntu 24.04 - extract .so directly from 22.04 deb
           if ! ldconfig -p | grep -q libgconf-2; then
             wget -q "http://archive.ubuntu.com/ubuntu/pool/universe/g/gconf/libgconf-2-4_3.2.6-7ubuntu2_amd64.deb" -O /tmp/libgconf.deb
@@ -376,6 +376,8 @@ jobs:
             rm -rf /tmp/libgconf.deb /tmp/gconf_extract
             ldconfig -p | grep gconf && echo "libgconf-2 installed successfully" || echo "ERROR: libgconf still missing"
           fi
+          # Update apt-file cache for library resolution step
+          sudo apt-file update -qq 2>/dev/null || true
 
       - name: Install Unity 2018.4.36f1 + Android support
         run: |
@@ -425,6 +427,39 @@ jobs:
           ls /opt/unity/Data/PlaybackEngines/AndroidPlayer/ | head -10
           find /opt/unity/Data/PlaybackEngines -name "*.jar" | head -3
           echo "Unity 2018.4.36f1 + Android support installation complete"
+
+      - name: Resolve all Unity shared library dependencies
+        run: |
+          set +e  # dont fail on missing libs - best effort
+          UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
+          echo "Checking ldd for missing libs..."
+          MISSING=$(ldd "$UNITY" 2>/dev/null | grep "not found" | awk '{print $1}' || true)
+          # Also check libcef.so which has its own deps
+          if [ -f /opt/unity/libcef.so ]; then
+            MISSING="$MISSING $(ldd /opt/unity/libcef.so 2>/dev/null | grep "not found" | awk '{print $1}' || true)"
+          fi
+          if [ -n "$MISSING" ]; then
+            echo "Missing libraries:"
+            echo "$MISSING"
+            # Try to find packages that provide these libs
+            for lib in $MISSING; do
+              echo "  Searching for package providing $lib..."
+              PKG=$(apt-file search "$lib" 2>/dev/null | grep "x86_64-linux-gnu" | head -1 | cut -d: -f1) || true
+              if [ -n "$PKG" ]; then
+                echo "    -> $PKG"
+                sudo apt-get install -y -qq "$PKG" 2>/dev/null || true
+              else
+                # Try common lib name patterns
+                BASENAME=$(echo "$lib" | sed 's/\.so.*//; s/^lib//')
+                sudo apt-get install -y -qq "lib${BASENAME}-dev" 2>/dev/null ||                 sudo apt-get install -y -qq "lib${BASENAME}0" 2>/dev/null ||                 sudo apt-get install -y -qq "lib${BASENAME}" 2>/dev/null || true
+              fi
+            done
+            # Recheck
+            echo "=== After fix attempt ==="
+            ldd "$UNITY" 2>/dev/null | grep "not found" || echo "All Unity deps satisfied!"
+          else
+            echo "All Unity shared library dependencies satisfied!"
+          fi
 
       - name: Setup license
         env:
