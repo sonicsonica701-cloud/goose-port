@@ -358,6 +358,9 @@ jobs:
         run: docker pull unityci/editor:ubuntu-2018.4.36f1-android-3
 
       - name: Build APK with pre-activated license
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -e
           # Write Docker build script to a file to avoid quoting issues
@@ -365,8 +368,22 @@ jobs:
           #!/bin/bash
           set -e
           echo "=== Unity 2018.4 Build (matching game engine version) ==="
-          echo "=== License check ==="
-          cat /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml | head -5 || echo "No license file"
+
+          echo "=== Setting up license for Unity 2018.4 ==="
+          # Unity 2018.4 uses .ulf at ~/.local/share/unity3d/Unity/Unity_lic.ulf
+          # The entitlement XML (2020+ format) is also mounted - try both paths
+          mkdir -p /root/.local/share/unity3d/Unity
+          if [ -f /tmp/license.xml ]; then
+            cp /tmp/license.xml /root/.local/share/unity3d/Unity/Unity_lic.ulf
+            echo "License copied to 2018.4 path"
+          fi
+          # Also keep 2020+ path in case this image supports it
+          mkdir -p /root/.config/unity3d/Unity/licenses
+          if [ -f /tmp/license.xml ]; then
+            cp /tmp/license.xml /root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml
+          fi
+          ls -la /root/.local/share/unity3d/Unity/ 2>/dev/null || true
+          ls -la /root/.config/unity3d/Unity/licenses/ 2>/dev/null || true
 
           echo "=== Native plugins ==="
           find /project/Assets -name "*.so" -ls
@@ -388,14 +405,35 @@ jobs:
           fi
 
           echo "=== Running Unity 2018.4 build ==="
-          /opt/unity/Editor/Unity -batchmode -nographics -quit -projectPath /project -executeMethod AndroidBuilder.BuildAndroid -logFile /dev/stdout -buildTarget Android
+          # Try with -manualLicenseFile first (for .ulf), fall back to username/password
+          /opt/unity/Editor/Unity -batchmode -nographics -quit \
+            -manualLicenseFile /root/.local/share/unity3d/Unity/Unity_lic.ulf \
+            -projectPath /project \
+            -executeMethod AndroidBuilder.BuildAndroid \
+            -logFile /dev/stdout \
+            -buildTarget Android || {
+              echo "=== First attempt failed, trying with username/password ==="
+              /opt/unity/Editor/Unity -batchmode -nographics -quit \
+                -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
+                -projectPath /project \
+                -executeMethod AndroidBuilder.BuildAndroid \
+                -logFile /dev/stdout \
+                -buildTarget Android
+            }
           echo "=== Build output ==="
           ls -la /project/Build/ || true
           chown -R $(stat -c "%u:%g" /project) /project/Build || true
           DOCKERSCRIPT
           chmod +x /tmp/docker_build.sh
 
-          docker run --rm -v "$PWD/ExportedProject":/project -v "$PWD/UnityEntitlementLicense.xml":/root/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml:ro -v "/tmp/docker_build.sh":/tmp/docker_build.sh:ro -w /project unityci/editor:ubuntu-2018.4.36f1-android-3 bash /tmp/docker_build.sh
+          docker run --rm \
+            -e UNITY_EMAIL="${{ secrets.UNITY_EMAIL }}" \
+            -e UNITY_PASSWORD="${{ secrets.UNITY_PASSWORD }}" \
+            -v "$PWD/ExportedProject":/project \
+            -v "$PWD/UnityEntitlementLicense.xml":/tmp/license.xml:ro \
+            -v "/tmp/docker_build.sh":/tmp/docker_build.sh:ro \
+            -w /project \
+            unityci/editor:ubuntu-2018.4.36f1-android-3 bash /tmp/docker_build.sh
 
       - name: List build output
         if: always()
