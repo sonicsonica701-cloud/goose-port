@@ -368,7 +368,7 @@ jobs:
           sudo tar -xf /tmp/unity.tar.xz -C /opt/unity
           rm /tmp/unity.tar.xz
 
-          UNITY=$(find /opt/unity -name "Unity" -type f -path "*/Editor/Unity" | head -1)
+          UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
           if [ -z "$UNITY" ]; then
             echo "ERROR: Unity binary not found"
             find /opt/unity -maxdepth 4 -type f -name "Unity" | head -5
@@ -399,7 +399,7 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -e
-          UNITY=$(find /opt/unity -name "Unity" -type f -path "*/Editor/Unity" | head -1)
+          UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
 
           # Place the entitlement license at ALL known paths
           mkdir -p ~/.local/share/unity3d/Unity
@@ -433,7 +433,7 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -e
-          UNITY=$(find /opt/unity -name "Unity" -type f -path "*/Editor/Unity" | head -1)
+          UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
           echo "Building with: $UNITY"
 
           "$UNITY" -batchmode -nographics -quit \
