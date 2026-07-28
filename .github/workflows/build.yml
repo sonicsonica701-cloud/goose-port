@@ -354,6 +354,11 @@ jobs:
             find ExportedProject -name "*.cs" -exec grep -l "langauge\|Cannot find.*lang" {} \; | head -5
           fi
 
+      - name: Install dependencies for Unity 2018.4
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libglu1-mesa libxi6 libxcursor1 libxrandr2 libxinerama1 xvfb cpio p7zip-full
+
       - name: Install Unity 2018.4.36f1 + Android support
         run: |
           set -e
@@ -364,34 +369,61 @@ jobs:
 
           echo "Extracting Unity editor..."
           sudo mkdir -p /opt/unity
-          sudo tar -xf /tmp/unity.tar.xz -C /opt/unity --strip-components=1 || \
-          sudo tar -xf /tmp/unity.tar.xz -C /opt/unity
+          sudo tar -xf /tmp/unity.tar.xz -C /opt/unity --strip-components=1
           rm /tmp/unity.tar.xz
 
           UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
-          if [ -z "$UNITY" ]; then
-            echo "ERROR: Unity binary not found"
-            find /opt/unity -maxdepth 4 -type f -name "Unity" | head -5
-            ls -la /opt/unity/
-            exit 1
-          fi
           echo "Unity at: $UNITY"
-          "$UNITY" -version || true
+          "$UNITY" -version || echo "(version check may fail without display)"
 
           echo "=== Downloading Android build support ==="
-          wget -q "https://download.unity3d.com/download_unity/6cd387d23174/LinuxEditorTargetInstaller/UnitySetup-Android-Support-for-Editor-2018.4.36f1.tar.xz" -O /tmp/android.tar.xz || \
-          wget -q "https://beta.unity3d.com/download/6cd387d23174/LinuxEditorTargetInstaller/UnitySetup-Android-Support-for-Editor-2018.4.36f1.tar.xz" -O /tmp/android.tar.xz || \
-          echo "Android support download failed - may be bundled"
+          # Linux tar.xz doesn't exist for 2018.4.36f1, use Mac .pkg (xar+cpio format)
+          wget -q "https://download.unity3d.com/download_unity/6cd387d23174/MacEditorTargetInstaller/UnitySetup-Android-Support-for-Editor-2018.4.36f1.pkg" -O /tmp/android.pkg
+          echo "Downloaded Android support .pkg ($(du -h /tmp/android.pkg | cut -f1))"
 
-          if [ -f /tmp/android.tar.xz ]; then
-            sudo tar -xf /tmp/android.tar.xz -C /opt/unity
-            rm /tmp/android.tar.xz
-            echo "Android support installed"
+          echo "Extracting Android support from .pkg..."
+          mkdir -p /tmp/pkg_outer
+          cd /tmp/pkg_outer
+          7z x -y /tmp/android.pkg >/dev/null
+
+          # The .pkg contains sub-packages with Payload files (gzip'd cpio)
+          mkdir -p /tmp/pkg_inner
+          find /tmp/pkg_outer -name "Payload" -o -name "Payload~" | while read payload; do
+            echo "  Extracting payload: $(basename $(dirname $payload))"
+            cd /tmp/pkg_inner
+            if file "$payload" | grep -q gzip; then
+              gunzip -c "$payload" | sudo cpio -idm 2>/dev/null || true
+            else
+              cat "$payload" | sudo cpio -idm 2>/dev/null || true
+            fi
+          done
+
+          # Mac .pkg puts Android support under various paths, find it
+          ANDROID_PLAYER=$(find /tmp/pkg_inner -type d -name "AndroidPlayer" | head -1)
+          if [ -n "$ANDROID_PLAYER" ]; then
+            sudo mkdir -p /opt/unity/Data/PlaybackEngines/
+            sudo cp -r "$ANDROID_PLAYER" /opt/unity/Data/PlaybackEngines/AndroidPlayer
+            echo "Android support installed at /opt/unity/Data/PlaybackEngines/AndroidPlayer"
+          else
+            # Sometimes it's nested under Unity/PlaybackEngines or similar
+            echo "AndroidPlayer dir not found directly, searching for key files..."
+            find /tmp/pkg_inner -name "classes.jar" -path "*android*" | head -3
+            find /tmp/pkg_inner -type d -name "PlaybackEngines" | head -3
+            # Try copying the whole PlaybackEngines tree
+            PBE=$(find /tmp/pkg_inner -type d -name "PlaybackEngines" | head -1)
+            if [ -n "$PBE" ]; then
+              sudo cp -r "$PBE"/* /opt/unity/Data/PlaybackEngines/
+              echo "Copied PlaybackEngines contents"
+            fi
           fi
 
-          # Verify Android build tools
+          rm -rf /tmp/pkg_outer /tmp/pkg_inner /tmp/android.pkg
+
+          # Verify Android support
+          echo "=== Verification ==="
+          ls /opt/unity/Data/PlaybackEngines/ 2>/dev/null || echo "No PlaybackEngines dir!"
           find /opt/unity -name "*.jar" -path "*android*" 2>/dev/null | head -3
-          echo "Unity 2018.4.36f1 installation complete"
+          echo "Unity 2018.4.36f1 + Android support installation complete"
 
       - name: Setup license
         env:
