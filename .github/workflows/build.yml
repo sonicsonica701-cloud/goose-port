@@ -366,12 +366,15 @@ jobs:
             xvfb cpio p7zip-full libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 \
             libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libpango-1.0-0 \
             libcairo2 libatspi2.0-0 libasound2
-          # libgconf-2 removed in Ubuntu 24.04 - install from 22.04 archive
+          # libgconf-2 removed in Ubuntu 24.04 - extract .so directly from 22.04 deb
           if ! ldconfig -p | grep -q libgconf-2; then
             wget -q "http://archive.ubuntu.com/ubuntu/pool/universe/g/gconf/libgconf-2-4_3.2.6-7ubuntu2_amd64.deb" -O /tmp/libgconf.deb
-            sudo dpkg -i /tmp/libgconf.deb 2>/dev/null || sudo apt-get install -f -y -qq
-            rm -f /tmp/libgconf.deb
-            ldconfig -p | grep gconf || echo "Warning: libgconf not in ldconfig"
+            mkdir -p /tmp/gconf_extract
+            dpkg-deb -x /tmp/libgconf.deb /tmp/gconf_extract
+            sudo cp /tmp/gconf_extract/usr/lib/x86_64-linux-gnu/libgconf-2.so.4* /usr/lib/x86_64-linux-gnu/
+            sudo ldconfig
+            rm -rf /tmp/libgconf.deb /tmp/gconf_extract
+            ldconfig -p | grep gconf && echo "libgconf-2 installed successfully" || echo "ERROR: libgconf still missing"
           fi
 
       - name: Install Unity 2018.4.36f1 + Android support
