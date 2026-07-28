@@ -465,25 +465,37 @@ jobs:
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
         run: |
-          set -e
           UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
 
-          # Place the entitlement license at ALL known paths
+          # Unity 2018.4 looks for license in these locations
           mkdir -p ~/.local/share/unity3d/Unity
-          mkdir -p ~/.config/unity3d/Unity/licenses
-          cp UnityEntitlementLicense.xml ~/.local/share/unity3d/Unity/Unity_lic.ulf
-          cp UnityEntitlementLicense.xml ~/.config/unity3d/Unity/licenses/UnityEntitlementLicense.xml
+          mkdir -p ~/.config/unity3d/Unity
 
-          # Also try activating with credentials (works on bare metal better than Docker)
-          echo "Attempting license activation..."
-          xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
-            -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
-            -logFile /dev/stdout 2>&1 | tail -20 || true
+          # Place the license file (entitlement XML works as .ulf for some versions)
+          cp UnityEntitlementLicense.xml ~/.local/share/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
+          cp UnityEntitlementLicense.xml ~/.config/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
 
-          # Check if .ulf was created by activation
-          find ~ -name "Unity_lic.ulf" -o -name "*.ulf" 2>/dev/null | head -5
-          echo "License setup done"
+          # Try serial-based activation first (most reliable for Personal)
+          if [ -n "$UNITY_SERIAL" ]; then
+            echo "Activating with serial..."
+            xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
+              -serial "$UNITY_SERIAL" \
+              -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
+              -logFile /dev/stdout 2>&1 | tail -30 || true
+          else
+            # Try credential-based activation
+            echo "Attempting credential activation..."
+            xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
+              -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
+              -logFile /dev/stdout 2>&1 | tail -30 || true
+          fi
+
+          # Check what license files exist
+          echo "=== License files ==="
+          find ~ -name "*.ulf" -o -name "*License*" 2>/dev/null | head -10
+          echo "License setup done (build will proceed regardless)"
 
       - name: Patch localization source
         run: |
@@ -499,17 +511,26 @@ jobs:
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
         run: |
           set -e
           UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
           echo "Building with: $UNITY"
 
+          # Try build without credentials first (use pre-placed license)
           xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
-            -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
             -projectPath "$PWD/ExportedProject" \
             -executeMethod AndroidBuilder.BuildAndroid \
             -logFile - \
-            -buildTarget Android
+            -buildTarget Android || {
+            echo "=== First attempt failed, retrying with credentials ==="
+            xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
+              -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
+              -projectPath "$PWD/ExportedProject" \
+              -executeMethod AndroidBuilder.BuildAndroid \
+              -logFile - \
+              -buildTarget Android
+          }
 
           echo "=== Build output ==="
           ls -la ExportedProject/Build/
