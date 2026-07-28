@@ -357,7 +357,26 @@ jobs:
       - name: Install dependencies for Unity 2018.4
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libglu1-mesa libxi6 libxcursor1 libxrandr2 libxinerama1 xvfb cpio p7zip-full libgconf-2-4 libgtk-3-0 libnotify4 libnss3 libxss1 libasound2 libxtst6 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libpango-1.0-0 libcairo2 libatspi2.0-0
+          # Core libs (Ubuntu 24.04 compatible names)
+          sudo apt-get install -y -qq libglu1-mesa libxi6 libxcursor1 libxrandr2 libxinerama1 \
+            xvfb cpio p7zip-full libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 \
+            libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libpango-1.0-0 \
+            libcairo2 libatspi2.0-0 libasound2t64 || \
+          sudo apt-get install -y -qq libglu1-mesa libxi6 libxcursor1 libxrandr2 libxinerama1 \
+            xvfb cpio p7zip-full libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 \
+            libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libpango-1.0-0 \
+            libcairo2 libatspi2.0-0 libasound2
+          # libgconf-2 removed in Ubuntu 24.04 - provide stub symlink
+          if ! dpkg -l libgconf-2-4 2>/dev/null | grep -q ^ii; then
+            # Find or create libgconf-2.so.4
+            GCONF_SO=$(find /usr/lib -name "libgconf-2.so*" 2>/dev/null | head -1)
+            if [ -z "$GCONF_SO" ]; then
+              # Create a stub .so that satisfies the dynamic linker
+              echo 'void _gconf_stub(void){}' | gcc -shared -o /tmp/libgconf-2.so.4 -x c -
+              sudo cp /tmp/libgconf-2.so.4 /usr/lib/x86_64-linux-gnu/libgconf-2.so.4
+              sudo ldconfig
+            fi
+          fi
 
       - name: Install Unity 2018.4.36f1 + Android support
         run: |
