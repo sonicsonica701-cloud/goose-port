@@ -386,11 +386,12 @@ jobs:
           cd /tmp/pkg_outer
           7z x -y /tmp/android.pkg >/dev/null
 
-          # The .pkg contains sub-packages with Payload files (gzip'd cpio)
-          mkdir -p /tmp/pkg_inner
+          # The .pkg contains Payload files (gzip'd cpio archives)
+          # Extract directly into the target AndroidPlayer directory
+          sudo mkdir -p /opt/unity/Data/PlaybackEngines/AndroidPlayer
           find /tmp/pkg_outer -name "Payload" -o -name "Payload~" | while read payload; do
             echo "  Extracting payload: $(basename $(dirname $payload))"
-            cd /tmp/pkg_inner
+            cd /opt/unity/Data/PlaybackEngines/AndroidPlayer
             if file "$payload" | grep -q gzip; then
               gunzip -c "$payload" | sudo cpio -idm 2>/dev/null || true
             else
@@ -398,31 +399,13 @@ jobs:
             fi
           done
 
-          # Mac .pkg puts Android support under various paths, find it
-          ANDROID_PLAYER=$(find /tmp/pkg_inner -type d -name "AndroidPlayer" | head -1)
-          if [ -n "$ANDROID_PLAYER" ]; then
-            sudo mkdir -p /opt/unity/Data/PlaybackEngines/
-            sudo cp -r "$ANDROID_PLAYER" /opt/unity/Data/PlaybackEngines/AndroidPlayer
-            echo "Android support installed at /opt/unity/Data/PlaybackEngines/AndroidPlayer"
-          else
-            # Sometimes it's nested under Unity/PlaybackEngines or similar
-            echo "AndroidPlayer dir not found directly, searching for key files..."
-            find /tmp/pkg_inner -name "classes.jar" -path "*android*" | head -3
-            find /tmp/pkg_inner -type d -name "PlaybackEngines" | head -3
-            # Try copying the whole PlaybackEngines tree
-            PBE=$(find /tmp/pkg_inner -type d -name "PlaybackEngines" | head -1)
-            if [ -n "$PBE" ]; then
-              sudo cp -r "$PBE"/* /opt/unity/Data/PlaybackEngines/
-              echo "Copied PlaybackEngines contents"
-            fi
-          fi
-
-          rm -rf /tmp/pkg_outer /tmp/pkg_inner /tmp/android.pkg
+          # Cleanup (use sudo since cpio creates root-owned files)
+          sudo rm -rf /tmp/pkg_outer /tmp/android.pkg
 
           # Verify Android support
           echo "=== Verification ==="
-          ls /opt/unity/Data/PlaybackEngines/ 2>/dev/null || echo "No PlaybackEngines dir!"
-          find /opt/unity -name "*.jar" -path "*android*" 2>/dev/null | head -3
+          ls /opt/unity/Data/PlaybackEngines/AndroidPlayer/ | head -10
+          find /opt/unity/Data/PlaybackEngines -name "*.jar" | head -3
           echo "Unity 2018.4.36f1 + Android support installation complete"
 
       - name: Setup license
