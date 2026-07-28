@@ -463,39 +463,64 @@ jobs:
 
       - name: Setup license
         env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
         run: |
           UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
 
-          # Unity 2018.4 looks for license in these locations
+          # Unity 2018.4 license paths
           mkdir -p ~/.local/share/unity3d/Unity
           mkdir -p ~/.config/unity3d/Unity
 
-          # Place the license file (entitlement XML works as .ulf for some versions)
-          cp UnityEntitlementLicense.xml ~/.local/share/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
-          cp UnityEntitlementLicense.xml ~/.config/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
-
-          # Try serial-based activation first (most reliable for Personal)
-          if [ -n "$UNITY_SERIAL" ]; then
-            echo "Activating with serial..."
-            xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
-              -serial "$UNITY_SERIAL" \
-              -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
-              -logFile /dev/stdout 2>&1 | tail -30 || true
+          if [ -n "$UNITY_LICENSE" ]; then
+            # Decode base64 .ulf from secret (most reliable method)
+            echo "$UNITY_LICENSE" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
+            cp ~/.local/share/unity3d/Unity/Unity_lic.ulf ~/.config/unity3d/Unity/Unity_lic.ulf
+            echo "License placed from UNITY_LICENSE secret"
           else
-            # Try credential-based activation
-            echo "Attempting credential activation..."
+            # Fallback: try the entitlement XML in repo
+            cp UnityEntitlementLicense.xml ~/.local/share/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
+            cp UnityEntitlementLicense.xml ~/.config/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
+            echo "Using repo entitlement XML as license (may not work for 2018.4)"
+            
+            # Generate .alf for manual activation if needed
+            echo "Generating .alf for manual activation..."
             xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
-              -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
-              -logFile /dev/stdout 2>&1 | tail -30 || true
+              -createManualActivationFile \
+              -logFile /dev/stdout 2>&1 | tail -10 || true
+            
+            # If .alf was generated, it means we need manual activation
+            ALF=$(find . /tmp ~ -maxdepth 2 -name "*.alf" 2>/dev/null | head -1)
+            if [ -n "$ALF" ]; then
+              echo ""
+              echo "============================================"
+              echo "MANUAL ACTIVATION NEEDED!"
+              echo "============================================"
+              echo "1. Download the .alf artifact from this run"
+              echo "2. Go to: https://license.unity3d.com/manual"
+              echo "3. Upload the .alf, select Personal license"
+              echo "4. Download the .ulf file"
+              echo "5. Run: base64 -w 0 Unity_v2018.x.ulf"
+              echo "6. Save output as UNITY_LICENSE repo secret"
+              echo "============================================"
+              cp "$ALF" unity_activation.alf
+            fi
           fi
 
-          # Check what license files exist
+          # Verify
           echo "=== License files ==="
-          find ~ -name "*.ulf" -o -name "*License*" 2>/dev/null | head -10
-          echo "License setup done (build will proceed regardless)"
+          find ~ -name "*.ulf" 2>/dev/null | head -5
+          cat ~/.local/share/unity3d/Unity/Unity_lic.ulf | head -3 2>/dev/null || true
+          echo "License setup done"
+
+      - name: Upload activation file (if needed)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-activation-file
+          path: "*.alf"
+          if-no-files-found: ignore
 
       - name: Patch localization source
         run: |
@@ -508,29 +533,16 @@ jobs:
           fi
 
       - name: Build APK
-        env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
         run: |
           set -e
           UNITY=$(find /opt/unity -maxdepth 2 -name "Unity" -type f | head -1)
           echo "Building with: $UNITY"
 
-          # Try build without credentials first (use pre-placed license)
           xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
             -projectPath "$PWD/ExportedProject" \
             -executeMethod AndroidBuilder.BuildAndroid \
             -logFile - \
-            -buildTarget Android || {
-            echo "=== First attempt failed, retrying with credentials ==="
-            xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
-              -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
-              -projectPath "$PWD/ExportedProject" \
-              -executeMethod AndroidBuilder.BuildAndroid \
-              -logFile - \
-              -buildTarget Android
-          }
+            -buildTarget Android
 
           echo "=== Build output ==="
           ls -la ExportedProject/Build/
