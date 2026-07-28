@@ -23,12 +23,24 @@ jobs:
       - name: Install tools
         run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd
 
-      - name: Install Android NDK (for FMOD stub, correct Bionic ABI)
+      - name: Locate Android NDK
         id: ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r23c
-          local-cache: true
+        run: |
+          set -e
+          # Ubuntu-latest has NDK pre-installed
+          NDK_PATH="${ANDROID_NDK_HOME:-${ANDROID_NDK:-}}"
+          if [ -z "$NDK_PATH" ] || [ ! -d "$NDK_PATH" ]; then
+            # Search for any installed NDK
+            NDK_PATH=$(find /usr/local/lib/android/sdk/ndk -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1)
+          fi
+          if [ -z "$NDK_PATH" ] || [ ! -d "$NDK_PATH" ]; then
+            echo "ERROR: No NDK found"
+            exit 1
+          fi
+          echo "NDK at: $NDK_PATH"
+          echo "ndk-path=$NDK_PATH" >> $GITHUB_OUTPUT
+          # Verify clang exists
+          find "$NDK_PATH/toolchains/llvm/prebuilt" -name "clang" -type f | head -3
 
       - name: Download project tarball from release
         env:
@@ -78,10 +90,25 @@ jobs:
           # arm-linux-gnueabihf-gcc targets a completely different C library and
           # ABI than Android and will fail to load (UnsatisfiedLinkError) or behave
           # unpredictably on-device even though it links fine on the CI host.
-          ARM_CC="${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi22-clang"
-          ARM_NM="${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          NDK_PATH="${{ steps.ndk.outputs.ndk-path }}"
+          LLVM_BIN="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          # Find clang - modern NDKs (r23+) have versioned target-prefixed wrappers
+          if [ -f "$LLVM_BIN/armv7a-linux-androideabi22-clang" ]; then
+            ARM_CC="$LLVM_BIN/armv7a-linux-androideabi22-clang"
+          elif [ -f "$LLVM_BIN/clang" ]; then
+            ARM_CC="$LLVM_BIN/clang --target=armv7a-linux-androideabi22"
+          else
+            echo "ERROR: No clang found in NDK at $LLVM_BIN"
+            ls "$LLVM_BIN/" | head -20
+            exit 1
+          fi
+          ARM_NM="$LLVM_BIN/llvm-nm"
+          if [ ! -f "$ARM_NM" ]; then
+            ARM_NM="nm"
+          fi
           echo "Using NDK compiler: $ARM_CC"
-          "$ARM_CC" --version || { echo "NDK compiler not found at expected path"; exit 1; }
+          echo "Using nm: $ARM_NM"
+          $ARM_CC --version
 
           # The Unity FMOD binding uses FMOD5_ prefix for the native C functions
           cat > /tmp/fmod_stub.c << 'STUBEOF'
@@ -261,8 +288,8 @@ jobs:
           $ARM_CC -shared -fPIC -o /tmp/libfmodstudio.so /tmp/fmodstudio_stub.c -Wl,-soname,libfmodstudio.so
 
           echo "=== Verifying FMOD5_ symbols ==="
-          "$ARM_NM" -D /tmp/libfmod.so | grep "FMOD5" | head -10
-          "$ARM_NM" -D /tmp/libfmodstudio.so | grep "FMOD5" | head -10
+          $ARM_NM -D /tmp/libfmod.so | grep "FMOD5" | head -10
+          $ARM_NM -D /tmp/libfmodstudio.so | grep "FMOD5" | head -10
 
           echo "NOTE: these are still functional no-op stubs (fake success codes,"
           echo "no real playback). Fixing the ABI stops the library from failing to"
