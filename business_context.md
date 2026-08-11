@@ -91,3 +91,18 @@ The game was built with **Unity 2018.4 LTS** (confirmed for ALL versions includi
 - Unity 2018.4 LTS — do NOT upgrade engine
 - Same repo/workflow
 - AssetRipper export is from v1.1.4 (same 2018.4 engine)
+
+---
+
+## Build Readiness Blocker (added 2026-08-11)
+
+Before any run can actually produce an APK, the **`UNITY_LICENSE`** repo Actions secret must be set. The `Setup license` step in `build.yml` uses `UNITY_LICENSE` first; the checked-in `UnityEntitlementLicense.xml` is the newer entitlement format and will NOT work for the 2018.4 editor (the workflow itself flags this).
+
+One-time activation flow:
+1. Actions → run the build (or `generate-alf`) workflow → download the `.alf` artifact.
+2. Upload the `.alf` at https://license.unity3d.com/manual → choose **Personal** → download `Unity_v2018.x.ulf`.
+3. `base64 -w 0 Unity_v2018.x.ulf` → copy output.
+4. Repo → Settings → Secrets and variables → Actions → New secret named **`UNITY_LICENSE`** → paste.
+5. Actions → "Build Untitled Goose Game Android APK (ARMv7)" → Run workflow.
+
+Note: both workflows are `workflow_dispatch` only, so a git push does NOT trigger a build — it must be started from the Actions tab.
