@@ -508,6 +508,19 @@ jobs:
             fi
           fi
 
+          # Activate on THIS runner via Unity login (binds license to this VM)
+          # GitHub-hosted runners are ephemeral VMs: a .ulf pre-made on another
+          # machine never validates here, so log in per-run instead.
+          if [ -n "$UNITY_EMAIL" ] && [ -n "$UNITY_PASSWORD" ]; then
+            echo "Activating license via Unity login on this runner..."
+            xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
+              -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
+              -logFile - 2>&1 | tail -25 || true
+            find ~ -name "*.ulf" 2>/dev/null | head -5
+          else
+            echo "No UNITY_EMAIL/UNITY_PASSWORD - skipping runner login activation"
+          fi
+
           # Verify
           echo "=== License files ==="
           find ~ -name "*.ulf" 2>/dev/null | head -5
