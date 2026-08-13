@@ -473,52 +473,32 @@ jobs:
           mkdir -p ~/.local/share/unity3d/Unity
           mkdir -p ~/.config/unity3d/Unity
 
-          if [ -n "$UNITY_LICENSE" ]; then
-            # Decode base64 .ulf from secret (most reliable method)
-            echo "$UNITY_LICENSE" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
-            cp ~/.local/share/unity3d/Unity/Unity_lic.ulf ~/.config/unity3d/Unity/Unity_lic.ulf
-            echo "License placed from UNITY_LICENSE secret"
-          else
-            # Fallback: try the entitlement XML in repo
-            cp UnityEntitlementLicense.xml ~/.local/share/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
-            cp UnityEntitlementLicense.xml ~/.config/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
-            echo "Using repo entitlement XML as license (may not work for 2018.4)"
-            
-            # Generate .alf for manual activation if needed
-            echo "Generating .alf for manual activation..."
-            xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
-              -createManualActivationFile \
-              -logFile /dev/stdout 2>&1 | tail -10 || true
-            
-            # If .alf was generated, it means we need manual activation
-            ALF=$(find . /tmp ~ -maxdepth 2 -name "*.alf" 2>/dev/null | head -1)
-            if [ -n "$ALF" ]; then
-              echo ""
-              echo "============================================"
-              echo "MANUAL ACTIVATION NEEDED!"
-              echo "============================================"
-              echo "1. Download the .alf artifact from this run"
-              echo "2. Go to: https://license.unity3d.com/manual"
-              echo "3. Upload the .alf, select Personal license"
-              echo "4. Download the .ulf file"
-              echo "5. Run: base64 -w 0 Unity_v2018.x.ulf"
-              echo "6. Save output as UNITY_LICENSE repo secret"
-              echo "============================================"
-              cp "$ALF" unity_activation.alf
-            fi
+          # Always generate a runner-native .alf (GitHub runners share a stable
+          # machine ID, so a .ulf activated from THIS .alf works on every run)
+          echo "Generating runner .alf for manual activation..."
+          xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
+            -createManualActivationFile \
+            -logFile /dev/stdout 2>&1 | tail -10 || true
+          ALF=$(find . /tmp ~ -maxdepth 2 -name "*.alf" 2>/dev/null | head -1)
+          if [ -n "$ALF" ]; then
+            cp "$ALF" unity_activation.alf
+            echo "Runner .alf saved: $ALF"
           fi
 
-          # Activate on THIS runner via Unity login (binds license to this VM)
-          # GitHub-hosted runners are ephemeral VMs: a .ulf pre-made on another
-          # machine never validates here, so log in per-run instead.
+          # Place the UNITY_LICENSE .ulf if provided (MUST be bound to this runner)
+          if [ -n "$UNITY_LICENSE" ]; then
+            echo "$UNITY_LICENSE" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
+            cp ~/.local/share/unity3d/Unity/Unity_lic.ulf ~/.config/unity3d/Unity/Unity_lic.ulf 2>/dev/null || true
+            echo "License placed from UNITY_LICENSE secret"
+          fi
+
+          # Activate on THIS runner via Unity login as a fallback
           if [ -n "$UNITY_EMAIL" ] && [ -n "$UNITY_PASSWORD" ]; then
-            echo "Activating license via Unity login on this runner..."
+            echo "Attempting Unity login activation on this runner..."
             xvfb-run --auto-servernum "$UNITY" -batchmode -nographics -quit \
               -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
               -logFile - 2>&1 | tail -25 || true
             find ~ -name "*.ulf" 2>/dev/null | head -5
-          else
-            echo "No UNITY_EMAIL/UNITY_PASSWORD - skipping runner login activation"
           fi
 
           # Verify
