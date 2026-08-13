@@ -7,6 +7,30 @@ public class AndroidBuilder
     [MenuItem("Build/Build Android")]
     public static void BuildAndroid()
     {
+        // --- FIX: Unity 2018.4 batchmode does not read ANDROID_HOME/SDK_ROOT
+        // env vars (that's 2019.1+); the toolchain paths must live in
+        // EditorPrefs before BuildPlayer is called.
+        var sdk = System.Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT")
+               ?? System.Environment.GetEnvironmentVariable("ANDROID_HOME");
+        var ndk = System.Environment.GetEnvironmentVariable("ANDROID_NDK_ROOT")
+               ?? System.Environment.GetEnvironmentVariable("ANDROID_NDK_HOME");
+        var jdk = System.Environment.GetEnvironmentVariable("JAVA_HOME");
+        if (!string.IsNullOrEmpty(sdk))
+        {
+            Debug.Log($"Setting AndroidSdkRoot -> {sdk}");
+            UnityEditor.EditorPrefs.SetString("AndroidSdkRoot", sdk);
+        }
+        if (!string.IsNullOrEmpty(ndk))
+        {
+            Debug.Log($"Setting AndroidNdkRoot -> {ndk}");
+            UnityEditor.EditorPrefs.SetString("AndroidNdkRoot", ndk);
+        }
+        if (!string.IsNullOrEmpty(jdk))
+        {
+            Debug.Log($"Setting JdkRoot -> {jdk}");
+            UnityEditor.EditorPrefs.SetString("JdkRoot", jdk);
+        }
+
         string buildPath = "Build/UntitledGooseGame.apk";
         string buildDir = Path.GetDirectoryName(buildPath);
         if (!Directory.Exists(buildDir))
