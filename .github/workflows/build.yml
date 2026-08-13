@@ -461,6 +461,27 @@ jobs:
             echo "All Unity shared library dependencies satisfied!"
           fi
 
+      - name: Pin machine identity for stable Unity licensing
+        run: |
+          set -e
+          # Unity 2018.4 binds the license to a machine fingerprint (MD5). GitHub-hosted
+          # runners get a fresh fingerprint per VM/image, so a .ulf only stays valid
+          # until the fleet rotates. Pin the identity inputs to fixed values so the
+          # fingerprint is deterministic and one activated .ulf works on every run.
+          sudo hostnamectl set-hostname unityci-runner 2>/dev/null || true
+          sudo sh -c 'echo "unityci-runner" > /etc/hostname'
+          sudo hostname unityci-runner 2>/dev/null || true
+          sudo sh -c 'echo "5f2c1e8a9b3d4f607c1a2b3c4d5e6f70" > /etc/machine-id'
+          if [ ! -L /var/lib/dbus/machine-id ]; then
+            sudo sh -c 'echo "5f2c1e8a9b3d4f607c1a2b3c4d5e6f70" > /var/lib/dbus/machine-id' 2>/dev/null || true
+          fi
+          echo "=== Machine identity ==="
+          echo "hostname: $(hostname)"
+          echo "machine-id: $(cat /etc/machine-id)"
+          for i in /sys/class/net/*/address; do echo "$(basename $(dirname $i)): $(cat $i)"; done
+          cat /sys/class/dmi/id/product_uuid 2>/dev/null || true
+          echo "Identity pinned"
+
       - name: Setup license
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
