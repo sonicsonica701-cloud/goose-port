@@ -525,6 +525,49 @@ jobs:
             echo "Localization patched"
           fi
 
+      - name: Prepare Android SDK for Unity 2018.4 (legacy tools + android-30 platform)
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -e
+
+          # Unity 2018.4's AndroidSDKTools.Validate() requires the legacy layout:
+          #   $ANDROID_HOME/tools/bin/sdkmanager must exist (the modern SDK only ships
+          #   cmdline-tools, so detection fails with "Android SDK not found").
+          # ToolsVersion() reads $ANDROID_HOME/tools/source.properties; Unity requires
+          # >= 26.1.1 and otherwise tries to self-update via the obsolete "tools" package,
+          # which no longer exists in the Android repository. We report 26.1.1 to satisfy
+          # the version check without an update attempt.
+          if [ ! -f "$ANDROID_HOME/tools/bin/sdkmanager" ]; then
+            echo "=== Installing legacy SDK tools 25.2.5 ==="
+            wget -q "https://dl.google.com/android/repository/tools_r25.2.5-linux.zip" -O /tmp/sdk-tools.zip
+            sudo unzip -q -o /tmp/sdk-tools.zip -d "$ANDROID_HOME"
+            rm -f /tmp/sdk-tools.zip
+          fi
+          printf 'Pkg.UserSrc=false\nPkg.Revision=26.1.1\n' | sudo tee "$ANDROID_HOME/tools/source.properties" >/dev/null
+          echo "--- tools verification ---"
+          ls -la "$ANDROID_HOME/tools/bin/sdkmanager"
+          cat "$ANDROID_HOME/tools/source.properties"
+
+          # Unity aborts with "Target Android SDK not installed" unless the exact target
+          # platform (android-30, targetSdkVersion=30) is present. The runner image only
+          # ships android-34+, so install it with the modern cmdline-tools sdkmanager
+          # (needs Java 17+, the runner default before the JDK 8 step below).
+          if [ ! -f "$ANDROID_HOME/platforms/android-30/android.jar" ]; then
+            echo "=== Installing platforms;android-30 ==="
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            if [ ! -x "$SDKMANAGER" ]; then
+              SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 3 -name sdkmanager -type f | head -1)
+            fi
+            if [ -z "$SDKMANAGER" ]; then
+              echo "cmdline-tools sdkmanager not found"
+              exit 1
+            fi
+            yes | sudo -E "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "platforms;android-30"
+          fi
+          echo "--- platform verification ---"
+          ls -la "$ANDROID_HOME/platforms/android-30/android.jar"
+
       - name: Set up JDK 8 for Unity
         uses: actions/setup-java@v4
         with:
