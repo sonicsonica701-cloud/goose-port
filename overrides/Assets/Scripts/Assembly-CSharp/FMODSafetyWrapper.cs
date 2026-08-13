@@ -20,7 +20,7 @@ using FMOD;
 /// </summary>
 public static class FMODSafetyWrapper
 {
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
     static void Install()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
